@@ -19,7 +19,9 @@ class RepositoryStructureTests(unittest.TestCase):
             "docs/project-plan.md",
             "docs/phase-log.md",
             "lessons/0001-python-project-anatomy.html",
+            "lessons/0002-boundary-models.html",
             "reference/python-project-setup.html",
+            "reference/pydantic-boundary-models.html",
         ]
 
         for relative_path in required_files:

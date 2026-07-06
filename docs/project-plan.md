@@ -38,6 +38,8 @@ Manual checkpoint:
 
 ## Phase 2 - Core Data Contracts
 
+Status: complete.
+
 Build outcome:
 - Add Pydantic models for frame metadata, face boxes, embeddings, employee records, match results, liveness results, and attendance events.
 - Define event types and confidence/threshold fields.

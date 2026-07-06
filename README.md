@@ -6,7 +6,7 @@ The system will capture live video, detect faces, extract numeric embeddings, ma
 
 ## Current Status
 
-Phase 1 is complete: repository root setup and Python project configuration are in place without adding application dependencies yet.
+Phase 2 is complete: core Pydantic data contracts are in place for the attendance pipeline boundaries.
 
 Application implementation has not started yet.
 
@@ -43,14 +43,14 @@ No application dependencies are installed by default yet. The PDF-required depen
 
 ## Dependency Decision
 
-Current Phase 1 decision:
+Current dependency decision:
 - Use the Python standard library `unittest` for now.
 - Use setuptools only as the packaging build backend.
 - Keep the default install dependency-light.
-- Declare required dependency families as optional extras in `pyproject.toml`.
+- Install Pydantic as a core runtime dependency for boundary models.
+- Declare heavier vision/recognition dependency families as optional extras in `pyproject.toml`.
 
 Planned installs:
-- Phase 2: `python -m pip install -e .[validation]` for Pydantic boundary models.
 - Phase 4 or 5: `python -m pip install -e .[vision]` for OpenCV and NumPy.
 - Phase 6: choose `face_recognition`, InsightFace, or a comparable embedding library.
 

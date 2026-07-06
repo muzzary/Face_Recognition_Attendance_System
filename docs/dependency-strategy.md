@@ -11,10 +11,10 @@ The Khizex specification requires a Python biometric attendance system using com
 - Background processing through Python concurrency tools.
 - Lightweight storage, with SQLite acceptable.
 
-## Current Phase 1 Decision
+## Current Decision
 
-- Runtime dependencies remain empty in the default install: `python -m pip install -e .`.
-- PDF-required dependency families are declared as optional extras in `pyproject.toml`.
+- Pydantic is a default runtime dependency because Phase 2 imports it directly for core boundary models.
+- Heavier vision and recognition dependency families remain optional extras in `pyproject.toml`.
 - We will install each optional extra when the matching implementation phase begins.
 
 ## Why Not Install Everything Now?
@@ -26,7 +26,6 @@ The Khizex specification requires a Python biometric attendance system using com
 
 ## Planned Installs by Phase
 
-- Phase 2: install `.[validation]` for Pydantic boundary models.
 - Phase 4 or 5: install `.[vision]` for OpenCV and NumPy.
 - Phase 6: choose and install either `.[recognition-face-recognition]`, `.[recognition-insightface]`, or a better documented equivalent.
 
@@ -44,4 +43,3 @@ Before adding a dependency to the default runtime install, confirm:
 - It works on this Windows machine.
 - It has a clear role in the architecture.
 - It does not cause raw biometric files to be stored.
-

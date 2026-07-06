@@ -17,6 +17,7 @@ Last updated: 2026-07-06
 ## Source
 
 - `src/face_attendance/__init__.py` - package marker for the attendance system.
+- `src/face_attendance/contracts.py` - Pydantic data contracts for frame metadata, detections, embeddings, employees, matching, liveness, and attendance events.
 - `src/face_attendance/capture/` - camera and frame acquisition code.
 - `src/face_attendance/detection/` - face detection code.
 - `src/face_attendance/embeddings/` - facial embedding extraction code.
@@ -30,6 +31,7 @@ Last updated: 2026-07-06
 
 - `tests/test_repository_structure.py` - starter safety tests for required docs and source folders.
 - `tests/test_package_import.py` - verifies the installable package can be imported.
+- `tests/test_contracts.py` - verifies core Pydantic data contracts accept valid payloads and reject malformed ones.
 
 ## Docs
 
@@ -40,7 +42,9 @@ Last updated: 2026-07-06
 ## Teaching Workspace
 
 - `lessons/0001-python-project-anatomy.html` - Phase 1 lesson on project packaging structure.
+- `lessons/0002-boundary-models.html` - Phase 2 lesson on Pydantic boundary validation.
 - `reference/python-project-setup.html` - quick reference for setup commands and file roles.
+- `reference/pydantic-boundary-models.html` - quick reference for core contract models and validation rules.
 - `lessons/` - short HTML lessons created before implementation phases.
 - `reference/` - reusable quick-reference teaching documents.
 - `learning-records/` - evidence-backed learning records created when understanding is demonstrated.

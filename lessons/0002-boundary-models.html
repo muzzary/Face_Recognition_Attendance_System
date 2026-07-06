@@ -1,0 +1,99 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>Lesson 0002 - Boundary Models</title>
+  <style>
+    body {
+      max-width: 760px;
+      margin: 0 auto;
+      padding: 48px 24px 72px;
+      color: #202124;
+      font: 17px/1.55 Georgia, "Times New Roman", serif;
+    }
+
+    h1, h2 {
+      font-family: Arial, Helvetica, sans-serif;
+      line-height: 1.15;
+    }
+
+    h1 {
+      margin-bottom: 8px;
+      font-size: 34px;
+    }
+
+    h2 {
+      margin-top: 34px;
+      font-size: 22px;
+    }
+
+    code {
+      background: #f6f8fa;
+      border: 1px solid #d9dde3;
+      border-radius: 5px;
+      padding: 1px 5px;
+      font-family: Consolas, "Courier New", monospace;
+      font-size: 0.92em;
+    }
+
+    .lede {
+      color: #5f6368;
+      font-family: Arial, Helvetica, sans-serif;
+    }
+
+    .box {
+      border-left: 4px solid #1a73e8;
+      background: #f6f8fa;
+      margin: 24px 0;
+      padding: 12px 16px;
+    }
+
+    a {
+      color: #1a73e8;
+    }
+  </style>
+</head>
+<body>
+  <main>
+    <h1>Boundary Models</h1>
+    <p class="lede">Phase 2 teaches why data should be checked when it crosses from one module to another.</p>
+
+    <h2>The Small Win</h2>
+    <p>
+      We create Pydantic models for the important attendance payloads: frames, detected faces, embeddings, employees, matches, liveness results, and attendance events.
+    </p>
+
+    <h2>Why Boundaries?</h2>
+    <p>
+      A camera module, detector, matcher, liveness checker, and storage layer all make promises to each other. A boundary model makes that promise executable: wrong shape, wrong type, impossible confidence score, or surprise raw image path gets rejected immediately.
+    </p>
+
+    <div class="box">
+      <strong>Memory hook:</strong> validate at the doorway, not after bad data has walked through the whole building.
+    </div>
+
+    <h2>What Pydantic Gives Us</h2>
+    <p>
+      Pydantic models inherit from <code>BaseModel</code>, use type annotations as field definitions, and raise <code>ValidationError</code> when data cannot be parsed into the model. For this project, we also forbid extra fields so raw image paths cannot sneak into event payloads.
+    </p>
+
+    <h2>Retrieval Check</h2>
+    <p>
+      Before Phase 3, answer this from memory: why is <code>extra="forbid"</code> useful in a biometric attendance project?
+    </p>
+
+    <h2>Primary Sources</h2>
+    <ul>
+      <li><a href="https://docs.pydantic.dev/latest/concepts/models/">Pydantic docs: Models</a></li>
+      <li><a href="https://docs.pydantic.dev/latest/concepts/fields/">Pydantic docs: Fields</a></li>
+      <li><a href="https://docs.pydantic.dev/latest/concepts/validators/">Pydantic docs: Validators</a></li>
+    </ul>
+
+    <p>
+      Ask your agent follow-up questions when anything feels unclear. The aim is to understand the boundary, not memorize Pydantic syntax.
+    </p>
+  </main>
+</body>
+</html>
+

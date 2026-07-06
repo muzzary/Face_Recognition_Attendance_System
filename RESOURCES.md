@@ -14,6 +14,10 @@
   Official project package area for InsightFace. Use for: embedding-library option research if we choose a deeper model.
 - [Pydantic Models](https://docs.pydantic.dev/latest/concepts/models/)
   Official Pydantic model documentation. Use for: boundary validation and typed data contracts.
+- [Pydantic Fields](https://docs.pydantic.dev/latest/concepts/fields/)
+  Official Pydantic field constraint documentation. Use for: ranges, required fields, and model constraints.
+- [Pydantic Validators](https://docs.pydantic.dev/latest/concepts/validators/)
+  Official Pydantic validator documentation. Use for: cross-field checks and custom rejection rules.
 - [Python concurrent.futures](https://docs.python.org/3/library/concurrent.futures.html)
   Official Python executor documentation. Use for: background recognition workers and process/thread tradeoffs.
 - [Python sqlite3](https://docs.python.org/3/library/sqlite3.html)

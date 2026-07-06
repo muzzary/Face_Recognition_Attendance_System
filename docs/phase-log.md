@@ -87,3 +87,28 @@ Date: 2026-07-06
 - Clean: default install remains dependency-light.
 - Clean: PDF-required dependency families are recorded as optional extras and explained in docs.
 - Clean: no secrets, runtime data, or biometric files were added.
+
+## Phase 2 - Core Data Contracts
+
+Date: 2026-07-06
+
+### Changed
+
+- Added Pydantic as a core runtime dependency.
+- Added immutable boundary models in `src/face_attendance/contracts.py`.
+- Added contract tests for valid payloads, malformed payloads, extra fields, timestamp awareness, embedding dimensions, match consistency, and failed liveness reasons.
+- Added Phase 2 lesson and Pydantic boundary-model reference.
+- Updated README, dependency strategy, directory map, project plan, and phase log.
+
+### Verified
+
+- `python -m pip install -e .`
+- `python -m unittest discover -s tests`
+- `python -c "from face_attendance.contracts import FaceEmbedding; print(FaceEmbedding(vector=[0.1], dimensions=1, model_name='demo').model_name)"`
+- `git diff --check`
+
+### Review
+
+- Clean: boundary models reject extra fields and malformed data.
+- Clean: attendance and employee payloads store metadata and numeric values only, not raw images.
+- Clean: no secrets, runtime data, camera captures, or biometric files were added.

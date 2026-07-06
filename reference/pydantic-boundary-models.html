@@ -1,0 +1,89 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>Reference - Pydantic Boundary Models</title>
+  <style>
+    body {
+      max-width: 900px;
+      margin: 40px auto;
+      padding: 0 24px 60px;
+      color: #202124;
+      font: 16px/1.5 Arial, Helvetica, sans-serif;
+    }
+
+    table {
+      border-collapse: collapse;
+      width: 100%;
+    }
+
+    th, td {
+      border: 1px solid #d9dde3;
+      padding: 10px 12px;
+      text-align: left;
+      vertical-align: top;
+    }
+
+    th {
+      background: #f6f8fa;
+    }
+
+    code {
+      background: #f6f8fa;
+      border: 1px solid #d9dde3;
+      border-radius: 5px;
+      padding: 1px 5px;
+      font-family: Consolas, "Courier New", monospace;
+    }
+  </style>
+</head>
+<body>
+  <h1>Pydantic Boundary Models Reference</h1>
+
+  <table>
+    <tr>
+      <th>Model</th>
+      <th>Boundary It Protects</th>
+    </tr>
+    <tr>
+      <td><code>FrameMetadata</code></td>
+      <td>Camera capture to detection.</td>
+    </tr>
+    <tr>
+      <td><code>DetectedFace</code></td>
+      <td>Detection to embedding extraction.</td>
+    </tr>
+    <tr>
+      <td><code>FaceEmbedding</code></td>
+      <td>Embedding extraction to matching/storage.</td>
+    </tr>
+    <tr>
+      <td><code>EmployeeRecord</code></td>
+      <td>Enrollment to storage.</td>
+    </tr>
+    <tr>
+      <td><code>MatchResult</code></td>
+      <td>Matching to attendance decision.</td>
+    </tr>
+    <tr>
+      <td><code>LivenessResult</code></td>
+      <td>Liveness checker to attendance decision.</td>
+    </tr>
+    <tr>
+      <td><code>AttendanceEvent</code></td>
+      <td>Attendance decision to secure log storage.</td>
+    </tr>
+  </table>
+
+  <h2>Rules Used Here</h2>
+  <ul>
+    <li><code>extra="forbid"</code>: reject surprise fields.</li>
+    <li><code>frozen=True</code>: keep boundary payloads immutable.</li>
+    <li>Confidence scores stay between <code>0.0</code> and <code>1.0</code>.</li>
+    <li>Timestamps must be timezone-aware.</li>
+    <li>Embeddings must contain only finite numbers.</li>
+  </ul>
+</body>
+</html>
+
