@@ -32,6 +32,10 @@ No third-party dependencies are installed yet. Dependencies will be added delibe
 
 See [DIRECTORY_MAP.md](DIRECTORY_MAP.md) for the current folder map.
 
+## Project Plan
+
+See [docs/project-plan.md](docs/project-plan.md) for the phase-by-phase build and learning roadmap.
+
 ## Verification
 
 Run the starter tests:
@@ -47,4 +51,3 @@ The CI workflow runs the same test command on push and pull request.
 - Do not commit `.env` files.
 - Do not commit raw face images, camera captures, videos, or generated biometric databases.
 - The `data/`, `logs/`, and `recordings/` folders are treated as local runtime output.
-

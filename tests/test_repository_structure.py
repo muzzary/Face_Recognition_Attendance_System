@@ -10,7 +10,11 @@ class RepositoryStructureTests(unittest.TestCase):
         required_files = [
             "AGENTS.md",
             "DIRECTORY_MAP.md",
+            "MISSION.md",
+            "RESOURCES.md",
+            "NOTES.md",
             "README.md",
+            "docs/project-plan.md",
             "docs/phase-log.md",
         ]
 
@@ -28,6 +32,9 @@ class RepositoryStructureTests(unittest.TestCase):
             "src/face_attendance/storage",
             "src/face_attendance/attendance_logging",
             "src/face_attendance/config",
+            "lessons",
+            "reference",
+            "learning-records",
         ]
 
         for relative_path in required_directories:
@@ -51,11 +58,30 @@ class RepositoryStructureTests(unittest.TestCase):
             "multi-frame liveness detection",
             "bounded queue",
             "Pydantic models",
+            "docs/project-plan.md",
+            "MISSION.md",
         ]
 
         for term in required_terms:
             with self.subTest(term=term):
                 self.assertIn(term, agents)
+
+    def test_project_plan_covers_required_phases(self) -> None:
+        plan = (ROOT / "docs/project-plan.md").read_text(encoding="utf-8")
+
+        required_terms = [
+            "Camera Capture",
+            "Face Detection",
+            "Embeddings and Enrollment",
+            "Matching and Attendance Logging",
+            "Multi-Frame Liveness",
+            "Non-Blocking Background Processing",
+            "Demo and Submission Polish",
+        ]
+
+        for term in required_terms:
+            with self.subTest(term=term):
+                self.assertIn(term, plan)
 
 
 if __name__ == "__main__":

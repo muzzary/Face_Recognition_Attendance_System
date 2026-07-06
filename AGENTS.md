@@ -1,7 +1,5 @@
 # AGENTS.md
 
-This project follows the user's engineering workflow for a Windows laptop.
-
 ## Navigation
 
 Start with [DIRECTORY_MAP.md](DIRECTORY_MAP.md) before editing. Keep it updated whenever files or folders are added, removed, or repurposed.
@@ -12,7 +10,16 @@ Start with [DIRECTORY_MAP.md](DIRECTORY_MAP.md) before editing. Keep it updated 
 - Build phase by phase. Finish, verify, review, and log each phase before starting the next.
 - Add or update automated tests at the end of each phase.
 - Keep [docs/phase-log.md](docs/phase-log.md) updated with what changed and how it was verified.
+- Follow [docs/project-plan.md](docs/project-plan.md) as the phase roadmap unless the user changes scope.
 - Wait for the user's manual test OK before moving into the next implementation phase when behavior needs hands-on confirmation.
+
+## Teaching Workflow
+
+- Ground teaching in [MISSION.md](MISSION.md).
+- Keep trusted sources in [RESOURCES.md](RESOURCES.md) and prefer those sources before explaining technical details.
+- Start each implementation phase with one small lesson objective.
+- Put reusable teaching material in `reference/` and phase lessons in `lessons/`.
+- Record demonstrated understanding in `learning-records/` only when the user shows they can use the concept.
 
 ## Project Requirements
 

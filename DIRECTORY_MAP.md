@@ -7,6 +7,9 @@ Last updated: 2026-07-06
 - `.gitignore` - ignores Python caches, virtual environments, secrets, runtime logs, recordings, and local biometric data.
 - `AGENTS.md` - project-specific working instructions and engineering standards.
 - `DIRECTORY_MAP.md` - quick navigation map for every important folder and file.
+- `MISSION.md` - teaching mission for learning the project while building it.
+- `RESOURCES.md` - curated source list for learning and implementation decisions.
+- `NOTES.md` - teaching and collaboration notes.
 - `README.md` - project overview, setup notes, and current build status.
 - `.github/workflows/ci.yml` - lightweight CI that runs repository structure tests on push and pull request.
 
@@ -28,11 +31,17 @@ Last updated: 2026-07-06
 
 ## Docs
 
+- `docs/project-plan.md` - phase-by-phase build and learning roadmap.
 - `docs/phase-log.md` - phase-by-phase change log and verification notes.
+
+## Teaching Workspace
+
+- `lessons/` - short HTML lessons created before implementation phases.
+- `reference/` - reusable quick-reference teaching documents.
+- `learning-records/` - evidence-backed learning records created when understanding is demonstrated.
 
 ## Local Runtime Folders
 
 - `data/.gitkeep` - keeps the local data folder present while ignoring generated database/runtime data.
 - `logs/` - ignored runtime logs created during local runs.
 - `recordings/` - ignored local demo recordings.
-

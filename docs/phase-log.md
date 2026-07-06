@@ -41,3 +41,23 @@ Date: 2026-07-06
 
 - Clean: documentation-only update.
 - Clean: no dependencies, secrets, runtime data, or biometric files were added.
+
+## Phase 0 Follow-up - Project Plan and Teaching Workspace
+
+Date: 2026-07-06
+
+### Changed
+
+- Added a phase-by-phase build and learning roadmap in `docs/project-plan.md`.
+- Added teaching workspace files: `MISSION.md`, `RESOURCES.md`, `NOTES.md`, `lessons/`, `reference/`, and `learning-records/`.
+- Updated `AGENTS.md`, `DIRECTORY_MAP.md`, and `README.md` to point future work at the plan and teaching workflow.
+
+### Verified
+
+- `python -m unittest discover -s tests`
+- `git diff --check`
+
+### Review
+
+- Clean: planning/documentation-only update.
+- Clean: no dependencies, secrets, runtime data, or biometric files were added.
