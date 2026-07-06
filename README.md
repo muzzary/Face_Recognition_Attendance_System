@@ -6,7 +6,7 @@ The system will capture live video, detect faces, extract numeric embeddings, ma
 
 ## Current Status
 
-Phase 0 is complete: repository root setup, project navigation docs, starter package layout, and lightweight CI/test scaffolding.
+Phase 1 is complete: repository root setup and Python project configuration are in place without adding application dependencies yet.
 
 Application implementation has not started yet.
 
@@ -26,7 +26,31 @@ Application implementation has not started yet.
 
 Python 3.10+ is expected.
 
-No third-party dependencies are installed yet. Dependencies will be added deliberately in the implementation phases.
+Create and activate a virtual environment:
+
+```powershell
+python -m venv .venv
+.\.venv\Scripts\Activate.ps1
+```
+
+Install this project in editable mode:
+
+```powershell
+python -m pip install -e .
+```
+
+No application dependencies are installed yet. Dependencies will be added deliberately in the implementation phases.
+
+## Dependency Decision
+
+Current Phase 1 decision:
+- Use the Python standard library `unittest` for now.
+- Use setuptools only as the packaging build backend.
+- Add no application dependencies yet.
+
+Likely next dependency discussion:
+- Phase 2: Pydantic for boundary models.
+- Phase 4 or 5: OpenCV and the chosen face detection/embedding library.
 
 ## Repository Layout
 

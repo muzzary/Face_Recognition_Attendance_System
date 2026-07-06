@@ -17,6 +17,8 @@ Verification:
 
 ## Phase 1 - Tooling and Dependency Decision
 
+Status: complete.
+
 Build outcome:
 - Create the Python project configuration.
 - Choose the first dependency set after discussion: likely OpenCV, Pydantic, pytest or unittest strategy, and one face detection/embedding path.
@@ -232,4 +234,3 @@ During coding:
 After verification:
 - Record any demonstrated understanding in `learning-records/`.
 - Update `docs/phase-log.md`.
-

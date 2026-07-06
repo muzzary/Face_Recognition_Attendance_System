@@ -10,6 +10,7 @@ Last updated: 2026-07-06
 - `MISSION.md` - teaching mission for learning the project while building it.
 - `RESOURCES.md` - curated source list for learning and implementation decisions.
 - `NOTES.md` - teaching and collaboration notes.
+- `pyproject.toml` - Python packaging metadata, build backend, package discovery, and future tool configuration.
 - `README.md` - project overview, setup notes, and current build status.
 - `.github/workflows/ci.yml` - lightweight CI that runs repository structure tests on push and pull request.
 
@@ -28,6 +29,7 @@ Last updated: 2026-07-06
 ## Tests
 
 - `tests/test_repository_structure.py` - starter safety tests for required docs and source folders.
+- `tests/test_package_import.py` - verifies the installable package can be imported.
 
 ## Docs
 
@@ -36,6 +38,8 @@ Last updated: 2026-07-06
 
 ## Teaching Workspace
 
+- `lessons/0001-python-project-anatomy.html` - Phase 1 lesson on project packaging structure.
+- `reference/python-project-setup.html` - quick reference for setup commands and file roles.
 - `lessons/` - short HTML lessons created before implementation phases.
 - `reference/` - reusable quick-reference teaching documents.
 - `learning-records/` - evidence-backed learning records created when understanding is demonstrated.

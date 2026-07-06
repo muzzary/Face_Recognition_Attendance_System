@@ -1,0 +1,99 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>Reference - Python Project Setup</title>
+  <style>
+    body {
+      max-width: 900px;
+      margin: 40px auto;
+      padding: 0 24px 60px;
+      color: #202124;
+      font: 16px/1.5 Arial, Helvetica, sans-serif;
+    }
+
+    h1, h2 {
+      line-height: 1.2;
+    }
+
+    table {
+      border-collapse: collapse;
+      width: 100%;
+      margin: 18px 0 28px;
+    }
+
+    th, td {
+      border: 1px solid #d9dde3;
+      padding: 10px 12px;
+      text-align: left;
+      vertical-align: top;
+    }
+
+    th {
+      background: #f6f8fa;
+    }
+
+    code {
+      background: #f6f8fa;
+      border: 1px solid #d9dde3;
+      border-radius: 5px;
+      padding: 1px 5px;
+      font-family: Consolas, "Courier New", monospace;
+    }
+  </style>
+</head>
+<body>
+  <h1>Python Project Setup Reference</h1>
+
+  <h2>Commands</h2>
+  <table>
+    <tr>
+      <th>Goal</th>
+      <th>Command</th>
+    </tr>
+    <tr>
+      <td>Create a local virtual environment</td>
+      <td><code>python -m venv .venv</code></td>
+    </tr>
+    <tr>
+      <td>Activate on PowerShell</td>
+      <td><code>.\.venv\Scripts\Activate.ps1</code></td>
+    </tr>
+    <tr>
+      <td>Install this project in editable mode</td>
+      <td><code>python -m pip install -e .</code></td>
+    </tr>
+    <tr>
+      <td>Run tests</td>
+      <td><code>python -m unittest discover -s tests</code></td>
+    </tr>
+  </table>
+
+  <h2>File Roles</h2>
+  <table>
+    <tr>
+      <th>File or Folder</th>
+      <th>Role</th>
+    </tr>
+    <tr>
+      <td><code>pyproject.toml</code></td>
+      <td>Project metadata, build backend, package discovery, and future tool configuration.</td>
+    </tr>
+    <tr>
+      <td><code>src/face_attendance/</code></td>
+      <td>Application package imported by tests, CLI commands, and future runtime code.</td>
+    </tr>
+    <tr>
+      <td><code>tests/</code></td>
+      <td>Automated checks for structure, imports, and later business behavior.</td>
+    </tr>
+  </table>
+
+  <h2>Phase 1 Rule</h2>
+  <p>
+    Build configuration is allowed now. Third-party application dependencies wait until we choose them deliberately.
+  </p>
+</body>
+</html>
+

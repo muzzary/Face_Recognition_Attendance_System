@@ -61,3 +61,27 @@ Date: 2026-07-06
 
 - Clean: planning/documentation-only update.
 - Clean: no dependencies, secrets, runtime data, or biometric files were added.
+
+## Phase 1 - Tooling and Dependency Decision
+
+Date: 2026-07-06
+
+### Changed
+
+- Added `pyproject.toml` with Python 3.10+ metadata, setuptools build backend, `src` package discovery, and no application dependencies.
+- Updated CI to install the package in editable mode before running tests.
+- Added package import/version test.
+- Added Phase 1 teaching lesson and Python project setup reference.
+- Updated README setup instructions and directory map.
+
+### Verified
+
+- `python -m pip install -e .`
+- `python -m unittest discover -s tests`
+- `git diff --check`
+
+### Review
+
+- Clean: no application dependencies were added.
+- Clean: generated packaging metadata is ignored by `.gitignore`.
+- Clean: no secrets, runtime data, or biometric files were added.

@@ -13,9 +13,12 @@ class RepositoryStructureTests(unittest.TestCase):
             "MISSION.md",
             "RESOURCES.md",
             "NOTES.md",
+            "pyproject.toml",
             "README.md",
             "docs/project-plan.md",
             "docs/phase-log.md",
+            "lessons/0001-python-project-anatomy.html",
+            "reference/python-project-setup.html",
         ]
 
         for relative_path in required_files:

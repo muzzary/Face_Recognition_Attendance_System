@@ -18,6 +18,12 @@
   Official Python executor documentation. Use for: background recognition workers and process/thread tradeoffs.
 - [Python sqlite3](https://docs.python.org/3/library/sqlite3.html)
   Official standard-library SQLite documentation. Use for: local employee and attendance storage.
+- [Python Packaging User Guide: Writing your pyproject.toml](https://packaging.python.org/en/latest/guides/writing-pyproject-toml/)
+  Official packaging guide for build metadata and project configuration. Use for: Phase 1 project setup.
+- [Setuptools: Package Discovery and Namespace Packages](https://setuptools.pypa.io/en/latest/userguide/package_discovery.html)
+  Official setuptools guide for package discovery, including `src` layout projects. Use for: editable install and package discovery.
+- [Python unittest](https://docs.python.org/3/library/unittest.html)
+  Official Python standard-library testing documentation. Use for: dependency-free test discovery and assertions.
 
 ## Wisdom (Communities)
 
