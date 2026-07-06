@@ -1,0 +1,39 @@
+# Python
+__pycache__/
+*.py[cod]
+*.pyo
+.pytest_cache/
+.mypy_cache/
+.ruff_cache/
+.coverage
+htmlcov/
+
+# Virtual environments
+.venv/
+venv/
+env/
+
+# Local configuration and secrets
+.env
+.env.*
+!.env.example
+
+# Runtime outputs
+logs/
+*.log
+
+# Local biometric/runtime data
+data/*
+!data/.gitkeep
+
+# Demo/output media
+recordings/
+*.mp4
+*.mov
+*.avi
+
+# OS/editor noise
+.DS_Store
+Thumbs.db
+.idea/
+.vscode/
