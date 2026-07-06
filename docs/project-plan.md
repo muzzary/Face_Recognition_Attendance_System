@@ -53,6 +53,8 @@ Tests:
 
 ## Phase 3 - Storage Foundation
 
+Status: complete.
+
 Build outcome:
 - Add SQLite schema and repository functions for employees, embeddings, and attendance logs.
 - Store embeddings as numeric data only.

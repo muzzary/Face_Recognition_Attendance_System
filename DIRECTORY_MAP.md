@@ -24,6 +24,8 @@ Last updated: 2026-07-06
 - `src/face_attendance/matching/` - employee matching and scoring code.
 - `src/face_attendance/liveness/` - anti-spoofing and multi-frame liveness checks.
 - `src/face_attendance/storage/` - database access, employee records, and attendance persistence.
+- `src/face_attendance/storage/__init__.py` - public storage exports.
+- `src/face_attendance/storage/database.py` - SQLite schema initialization and attendance repository.
 - `src/face_attendance/attendance_logging/` - attendance event logging helpers. Named to avoid conflicting with Python's standard `logging` module.
 - `src/face_attendance/config/` - application configuration loading and validation.
 
@@ -32,6 +34,7 @@ Last updated: 2026-07-06
 - `tests/test_repository_structure.py` - starter safety tests for required docs and source folders.
 - `tests/test_package_import.py` - verifies the installable package can be imported.
 - `tests/test_contracts.py` - verifies core Pydantic data contracts accept valid payloads and reject malformed ones.
+- `tests/test_storage.py` - verifies SQLite schema creation, employee/embedding/event persistence, foreign keys, and no raw image columns.
 
 ## Docs
 
@@ -43,8 +46,10 @@ Last updated: 2026-07-06
 
 - `lessons/0001-python-project-anatomy.html` - Phase 1 lesson on project packaging structure.
 - `lessons/0002-boundary-models.html` - Phase 2 lesson on Pydantic boundary validation.
+- `lessons/0003-sqlite-storage-boundaries.html` - Phase 3 lesson on storage boundaries and secure schema design.
 - `reference/python-project-setup.html` - quick reference for setup commands and file roles.
 - `reference/pydantic-boundary-models.html` - quick reference for core contract models and validation rules.
+- `reference/sqlite-storage.html` - quick reference for storage tables and repository methods.
 - `lessons/` - short HTML lessons created before implementation phases.
 - `reference/` - reusable quick-reference teaching documents.
 - `learning-records/` - evidence-backed learning records created when understanding is demonstrated.

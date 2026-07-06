@@ -1,0 +1,83 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>Reference - SQLite Storage</title>
+  <style>
+    body {
+      max-width: 900px;
+      margin: 40px auto;
+      padding: 0 24px 60px;
+      color: #202124;
+      font: 16px/1.5 Arial, Helvetica, sans-serif;
+    }
+
+    table {
+      border-collapse: collapse;
+      width: 100%;
+    }
+
+    th, td {
+      border: 1px solid #d9dde3;
+      padding: 10px 12px;
+      text-align: left;
+      vertical-align: top;
+    }
+
+    th {
+      background: #f6f8fa;
+    }
+
+    code {
+      background: #f6f8fa;
+      border: 1px solid #d9dde3;
+      border-radius: 5px;
+      padding: 1px 5px;
+      font-family: Consolas, "Courier New", monospace;
+    }
+  </style>
+</head>
+<body>
+  <h1>SQLite Storage Reference</h1>
+
+  <table>
+    <tr>
+      <th>Table</th>
+      <th>Purpose</th>
+      <th>Important Safety Detail</th>
+    </tr>
+    <tr>
+      <td><code>employees</code></td>
+      <td>Employee identity and active status.</td>
+      <td>No images, only employee metadata.</td>
+    </tr>
+    <tr>
+      <td><code>face_embeddings</code></td>
+      <td>Numeric face vectors tied to employees.</td>
+      <td>Stores <code>vector_json</code>, not photos or frame paths.</td>
+    </tr>
+    <tr>
+      <td><code>attendance_events</code></td>
+      <td>Clock-in and clock-out events.</td>
+      <td>Stores employee ID, timestamp, event type, confidence, and match distance.</td>
+    </tr>
+  </table>
+
+  <h2>Repository Methods</h2>
+  <ul>
+    <li><code>initialize_database(path)</code>: create schema.</li>
+    <li><code>add_employee(employee)</code>: persist an employee record.</li>
+    <li><code>add_embedding(employee_id, embedding)</code>: persist a numeric embedding.</li>
+    <li><code>add_attendance_event(event)</code>: persist an attendance log entry.</li>
+    <li><code>list_table_columns()</code>: inspect schema for safety tests.</li>
+  </ul>
+
+  <h2>Rules</h2>
+  <ul>
+    <li>Enable SQLite foreign keys on every connection.</li>
+    <li>Wrap database failures in <code>StorageError</code>.</li>
+    <li>Keep raw camera frames in memory only.</li>
+  </ul>
+</body>
+</html>

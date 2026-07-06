@@ -6,7 +6,7 @@ The system will capture live video, detect faces, extract numeric embeddings, ma
 
 ## Current Status
 
-Phase 2 is complete: core Pydantic data contracts are in place for the attendance pipeline boundaries.
+Phase 3 is complete: SQLite storage is in place for employees, embeddings, and attendance events.
 
 Application implementation has not started yet.
 

@@ -112,3 +112,29 @@ Date: 2026-07-06
 - Clean: boundary models reject extra fields and malformed data.
 - Clean: attendance and employee payloads store metadata and numeric values only, not raw images.
 - Clean: no secrets, runtime data, camera captures, or biometric files were added.
+
+## Phase 3 - Storage Foundation
+
+Date: 2026-07-06
+
+### Changed
+
+- Added SQLite schema initialization and a storage repository.
+- Added employees, face embeddings, and attendance events tables.
+- Added storage tests for round trips, foreign key enforcement, parent directory creation, and schema safety.
+- Added Phase 3 lesson and SQLite storage reference.
+- Updated README, directory map, project plan, and phase log.
+
+### Verified
+
+- `python -m unittest tests.test_storage`
+- `python -m unittest discover -s tests`
+- Storage schema smoke check with `AttendanceStorage.list_table_columns()`
+- `git diff --check`
+
+### Review
+
+- Clean: schema stores employee metadata, numeric embedding vectors, and attendance event metadata only.
+- Clean: no raw image, photo, frame path, raw byte, or capture columns exist.
+- Clean: foreign keys are enabled on every connection and tested against orphan embeddings/events.
+- Clean: storage errors are wrapped in `StorageError` with context.

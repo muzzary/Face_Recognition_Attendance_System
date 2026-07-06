@@ -1,0 +1,95 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>Lesson 0003 - SQLite Storage Boundaries</title>
+  <style>
+    body {
+      max-width: 760px;
+      margin: 0 auto;
+      padding: 48px 24px 72px;
+      color: #202124;
+      font: 17px/1.55 Georgia, "Times New Roman", serif;
+    }
+
+    h1, h2 {
+      font-family: Arial, Helvetica, sans-serif;
+      line-height: 1.15;
+    }
+
+    h1 {
+      margin-bottom: 8px;
+      font-size: 34px;
+    }
+
+    h2 {
+      margin-top: 34px;
+      font-size: 22px;
+    }
+
+    code {
+      background: #f6f8fa;
+      border: 1px solid #d9dde3;
+      border-radius: 5px;
+      padding: 1px 5px;
+      font-family: Consolas, "Courier New", monospace;
+      font-size: 0.92em;
+    }
+
+    .lede {
+      color: #5f6368;
+      font-family: Arial, Helvetica, sans-serif;
+    }
+
+    .box {
+      border-left: 4px solid #1a73e8;
+      background: #f6f8fa;
+      margin: 24px 0;
+      padding: 12px 16px;
+    }
+
+    a {
+      color: #1a73e8;
+    }
+  </style>
+</head>
+<body>
+  <main>
+    <h1>SQLite Storage Boundaries</h1>
+    <p class="lede">Phase 3 teaches how validated data becomes durable data without leaking raw biometric images.</p>
+
+    <h2>The Small Win</h2>
+    <p>
+      We add a SQLite repository that stores employees, face embeddings, and attendance events. Future modules call repository methods instead of writing SQL directly.
+    </p>
+
+    <h2>Why a Repository?</h2>
+    <p>
+      The repository keeps persistence decisions in one place: table names, foreign keys, JSON encoding, and database errors. Recognition code should think in terms of employees, embeddings, and events, not SQL strings.
+    </p>
+
+    <div class="box">
+      <strong>Memory hook:</strong> storage is a border checkpoint. It persists only what the contracts allow and the schema names.
+    </div>
+
+    <h2>Security Shape</h2>
+    <p>
+      The schema stores numeric embedding vectors as JSON text. It does not include columns for images, photos, raw bytes, or frame paths. That matters because schema design makes unsafe behavior harder to accidentally introduce later.
+    </p>
+
+    <h2>Retrieval Check</h2>
+    <p>
+      Before Phase 4, answer this from memory: why should recognition code call repository methods instead of writing SQL itself?
+    </p>
+
+    <h2>Primary Sources</h2>
+    <ul>
+      <li><a href="https://docs.python.org/3/library/sqlite3.html">Python docs: sqlite3</a></li>
+      <li><a href="https://www.sqlite.org/foreignkeys.html">SQLite docs: Foreign Key Support</a></li>
+      <li><a href="https://www.sqlite.org/lang_createtable.html">SQLite docs: CREATE TABLE</a></li>
+    </ul>
+  </main>
+</body>
+</html>
+
