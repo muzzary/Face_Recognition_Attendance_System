@@ -23,3 +23,21 @@ Date: 2026-07-06
 - Clean: no secrets, raw biometric files, generated recordings, or runtime databases were added.
 - Clean: no third-party dependencies were introduced.
 
+## Phase 0 Follow-up - Agent Requirements Alignment
+
+Date: 2026-07-06
+
+### Changed
+
+- Added the core Khizex project requirements to `AGENTS.md`.
+- Added simple implementation instructions for storage, liveness, concurrency, validation, and biometric data safety.
+
+### Verified
+
+- `python -m unittest discover -s tests`
+- `git diff --check`
+
+### Review
+
+- Clean: documentation-only update.
+- Clean: no dependencies, secrets, runtime data, or biometric files were added.

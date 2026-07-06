@@ -42,6 +42,21 @@ class RepositoryStructureTests(unittest.TestCase):
             with self.subTest(pattern=pattern):
                 self.assertIn(pattern, gitignore)
 
+    def test_agents_file_mentions_core_project_requirements(self) -> None:
+        agents = (ROOT / "AGENTS.md").read_text(encoding="utf-8")
+
+        required_terms = [
+            "Python 3.10+",
+            "numeric embeddings only",
+            "multi-frame liveness detection",
+            "bounded queue",
+            "Pydantic models",
+        ]
+
+        for term in required_terms:
+            with self.subTest(term=term):
+                self.assertIn(term, agents)
+
 
 if __name__ == "__main__":
     unittest.main()
