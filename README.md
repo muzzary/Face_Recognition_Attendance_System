@@ -39,18 +39,22 @@ Install this project in editable mode:
 python -m pip install -e .
 ```
 
-No application dependencies are installed yet. Dependencies will be added deliberately in the implementation phases.
+No application dependencies are installed by default yet. The PDF-required dependency families are declared as optional extras and will be installed deliberately in the matching implementation phases.
 
 ## Dependency Decision
 
 Current Phase 1 decision:
 - Use the Python standard library `unittest` for now.
 - Use setuptools only as the packaging build backend.
-- Add no application dependencies yet.
+- Keep the default install dependency-light.
+- Declare required dependency families as optional extras in `pyproject.toml`.
 
-Likely next dependency discussion:
-- Phase 2: Pydantic for boundary models.
-- Phase 4 or 5: OpenCV and the chosen face detection/embedding library.
+Planned installs:
+- Phase 2: `python -m pip install -e .[validation]` for Pydantic boundary models.
+- Phase 4 or 5: `python -m pip install -e .[vision]` for OpenCV and NumPy.
+- Phase 6: choose `face_recognition`, InsightFace, or a comparable embedding library.
+
+See [docs/dependency-strategy.md](docs/dependency-strategy.md) for the full reasoning.
 
 ## Repository Layout
 

@@ -15,6 +15,7 @@ class RepositoryStructureTests(unittest.TestCase):
             "NOTES.md",
             "pyproject.toml",
             "README.md",
+            "docs/dependency-strategy.md",
             "docs/project-plan.md",
             "docs/phase-log.md",
             "lessons/0001-python-project-anatomy.html",
@@ -85,6 +86,25 @@ class RepositoryStructureTests(unittest.TestCase):
         for term in required_terms:
             with self.subTest(term=term):
                 self.assertIn(term, plan)
+
+    def test_dependency_strategy_names_required_dependency_families(self) -> None:
+        strategy = (ROOT / "docs/dependency-strategy.md").read_text(encoding="utf-8")
+        pyproject = (ROOT / "pyproject.toml").read_text(encoding="utf-8")
+
+        required_terms = [
+            "OpenCV",
+            "Pydantic",
+            "face-recognition or embedding library",
+            "validation",
+            "vision",
+            "recognition-face-recognition",
+            "recognition-insightface",
+        ]
+
+        combined = f"{strategy}\n{pyproject}"
+        for term in required_terms:
+            with self.subTest(term=term):
+                self.assertIn(term, combined)
 
 
 if __name__ == "__main__":

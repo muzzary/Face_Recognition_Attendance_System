@@ -21,7 +21,9 @@ Status: complete.
 
 Build outcome:
 - Create the Python project configuration.
-- Choose the first dependency set after discussion: likely OpenCV, Pydantic, pytest or unittest strategy, and one face detection/embedding path.
+- Record the project-required dependency families: OpenCV, Pydantic, and a face-recognition or embedding library.
+- Declare those families as optional extras so default install stays light until the matching phase.
+- Choose `unittest` for now and keep pytest out until it earns its place.
 - Add lint/type commands only if the selected tooling stays lightweight.
 
 Learn:

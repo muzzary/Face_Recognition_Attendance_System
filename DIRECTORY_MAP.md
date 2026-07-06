@@ -33,6 +33,7 @@ Last updated: 2026-07-06
 
 ## Docs
 
+- `docs/dependency-strategy.md` - required dependency families, optional extras, and when each dependency should be installed.
 - `docs/project-plan.md` - phase-by-phase build and learning roadmap.
 - `docs/phase-log.md` - phase-by-phase change log and verification notes.
 

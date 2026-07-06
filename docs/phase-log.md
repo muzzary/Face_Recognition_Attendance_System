@@ -69,6 +69,8 @@ Date: 2026-07-06
 ### Changed
 
 - Added `pyproject.toml` with Python 3.10+ metadata, setuptools build backend, `src` package discovery, and no application dependencies.
+- Declared PDF-required dependency families as optional extras: validation, vision, and recognition choices.
+- Added `docs/dependency-strategy.md` to explain when each dependency should be installed.
 - Updated CI to install the package in editable mode before running tests.
 - Added package import/version test.
 - Added Phase 1 teaching lesson and Python project setup reference.
@@ -82,6 +84,6 @@ Date: 2026-07-06
 
 ### Review
 
-- Clean: no application dependencies were added.
-- Clean: generated packaging metadata is ignored by `.gitignore`.
+- Clean: default install remains dependency-light.
+- Clean: PDF-required dependency families are recorded as optional extras and explained in docs.
 - Clean: no secrets, runtime data, or biometric files were added.

@@ -19,9 +19,25 @@ classifiers = [
 ]
 dependencies = []
 
+[project.optional-dependencies]
+validation = [
+    "pydantic >= 2.0",
+]
+vision = [
+    "numpy >= 1.23",
+    "opencv-python >= 4.0",
+]
+recognition-face-recognition = [
+    "face-recognition >= 1.3.0",
+]
+recognition-insightface = [
+    "insightface >= 0.7.0",
+    "onnxruntime >= 1.16.0",
+]
+dev = []
+
 [project.urls]
 Repository = "https://github.com/muzzary/Face_Recognition_Attendance_System"
 
 [tool.setuptools.packages.find]
 where = ["src"]
-
