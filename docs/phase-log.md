@@ -222,6 +222,29 @@ Date: 2026-07-07
 - Documented limitation: a screen replaying a *video* of the employee produces non-rigid motion and is not caught; this is stated in code docs and will be in the README.
 - Note: default thresholds are conservative estimates; the manual spoof-test checkpoint should confirm them on the real camera, and they are configurable if calibration is needed.
 
+## Phase 9 - Non-Blocking Background Processing
+
+Date: 2026-07-07
+
+### Changed
+
+- Added `src/face_attendance/pipeline/` with `LatestFrameSlot` and `RecognitionWorker`.
+- `LatestFrameSlot` is a single-frame mailbox: a newer frame replaces an unconsumed one, so a backlog is impossible by construction; drops are counted for observability.
+- `RecognitionWorker` runs detection -> embedding -> matching -> liveness -> attendance off the capture thread, delivering per-frame `RecognitionOutput`s via callback.
+- Error policy: per-frame failures are reported and survived; a configurable number of consecutive failures stops the worker with an explicit `PipelineError`; unknown exceptions stop it immediately.
+- Graceful shutdown via `stop()` (event + join with timeout, loud failure if the thread hangs).
+- Added `tests/test_pipeline.py`: stale-frame dropping, multi-face frames, liveness gating, unknown faces, transient vs persistent errors, clean shutdown.
+
+### Verified
+
+- `python -m unittest discover -s tests` (87 tests, all green)
+
+### Review
+
+- Clean: worker never logs attendance for unmatched faces or without a passed liveness result (tested).
+- Clean: one bad frame cannot kill the pipeline; a broken pipeline cannot fail silently.
+- Clean: capture loop and recognition are fully decoupled; display smoothness no longer depends on model latency.
+
 ## Phase 3 - Storage Foundation
 
 Date: 2026-07-06

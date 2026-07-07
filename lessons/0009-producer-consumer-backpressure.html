@@ -1,0 +1,18 @@
+<!DOCTYPE html>
+<html lang="en">
+<head><meta charset="utf-8"><title>Lesson 9: Producer/Consumer and Backpressure</title></head>
+<body>
+<h1>Lesson 9: Producer/Consumer and Backpressure</h1>
+<p><strong>Objective:</strong> understand why real-time pipelines drop work instead of queueing it.</p>
+<h2>Key ideas</h2>
+<ul>
+  <li>A camera produces ~30 frames/s forever; recognition might sustain 10/s. An unbounded queue therefore grows forever — latency climbs until the app shows results from seconds ago. This is the <em>backpressure</em> problem.</li>
+  <li>For live video the correct policy is "latest frame wins": old frames have no value once a newer one exists. A single-slot mailbox makes backlog structurally impossible rather than merely unlikely.</li>
+  <li>Count what you drop. A drop counter turns "it feels slow" into a measurable statement ("recognition keeps up with 40% of frames").</li>
+  <li>Worker error policy mirrors real operations: survive one bad frame (transient), stop loudly on persistent failure (structural), never loop silently on errors.</li>
+  <li>Shutdown is part of the design: a stop event plus join-with-timeout, and a loud failure if the thread will not die — leaked threads hold the camera hostage.</li>
+</ul>
+<h2>Retrieval question</h2>
+<p>Why is a size-1 slot better than a bounded queue of size 5 here? <em>(Answer: any queued frame is already stale for display purposes; five queued frames just means acting on data five frames old. Only the newest frame matters.)</em></p>
+</body>
+</html>
