@@ -37,7 +37,7 @@ MODEL_SPECS: tuple[ModelSpec, ...] = (
     ModelSpec(
         filename="face_recognition_sface_2021dec.onnx",
         url=f"{_ZOO}/face_recognition_sface/face_recognition_sface_2021dec.onnx",
-        sha256="d2ba7a2ce5ca2c39b04b3e4cdbbbcf5edbb1b76a4bb572811a1ef149dd60fb0c",
+        sha256="0ba9fbfa01b5270c96627c4ef784da859931e02f04419c829e83484087c34e79",
     ),
 )
 
