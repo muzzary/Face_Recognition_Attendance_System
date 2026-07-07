@@ -56,12 +56,46 @@ class BoundingBox(StrictModel):
     height: int = Field(gt=0)
 
 
+class Point(StrictModel):
+    """A sub-pixel image coordinate."""
+
+    x: float
+    y: float
+
+    @field_validator("x", "y")
+    @classmethod
+    def require_finite(cls, value: float) -> float:
+        if not isfinite(value):
+            raise ValueError("landmark coordinates must be finite")
+        return value
+
+
+class FaceLandmarks(StrictModel):
+    """Five-point facial landmarks in YuNet order."""
+
+    right_eye: Point
+    left_eye: Point
+    nose_tip: Point
+    mouth_right: Point
+    mouth_left: Point
+
+    def as_points(self) -> tuple[Point, Point, Point, Point, Point]:
+        return (
+            self.right_eye,
+            self.left_eye,
+            self.nose_tip,
+            self.mouth_right,
+            self.mouth_left,
+        )
+
+
 class DetectedFace(StrictModel):
     """A detected face and its confidence in a specific frame."""
 
     frame: FrameMetadata
     bounding_box: BoundingBox
     detection_confidence: float = Field(ge=0.0, le=1.0)
+    landmarks: FaceLandmarks | None = None
 
 
 class FaceEmbedding(StrictModel):

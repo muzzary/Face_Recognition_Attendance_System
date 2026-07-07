@@ -27,6 +27,9 @@ logs/
 data/*
 !data/.gitkeep
 
+# Downloaded ONNX models (fetched via scripts/download_models.py)
+models/
+
 # Demo/output media
 recordings/
 *.mp4

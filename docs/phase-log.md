@@ -113,6 +113,51 @@ Date: 2026-07-06
 - Clean: attendance and employee payloads store metadata and numeric values only, not raw images.
 - Clean: no secrets, runtime data, camera captures, or biometric files were added.
 
+## Phase 4 - Camera Capture
+
+Date: 2026-07-07
+
+### Changed
+
+- Added `src/face_attendance/capture/` with `OpenCvCamera`, the `FrameSource` protocol, an in-memory `Frame` container, and `CaptureError`.
+- Promoted `numpy` and `opencv-python` to core dependencies; removed the unused recognition-library extras because detection/embeddings will use YuNet + SFace, which ship inside `opencv-python`.
+- Updated CI to install `libgl1`/`libglib2.0-0` so OpenCV imports on Ubuntu runners.
+- Added `tests/fakes.py` (fake video capture and frame source reused across later phases) and `tests/test_capture.py`.
+
+### Verified
+
+- `python -m pip install -e .`
+- `python -m unittest discover -s tests` (37 tests, all green)
+
+### Review
+
+- Clean: raw frames live only in memory; nothing writes image bytes to disk.
+- Clean: camera open/read/corrupt/disconnect failures raise `CaptureError` with actionable messages.
+- Clean: capture factory is injectable, so all error paths are unit-tested without hardware.
+
+## Phase 5 - Face Detection
+
+Date: 2026-07-07
+
+### Changed
+
+- Added `Point` and `FaceLandmarks` contracts and an optional `landmarks` field on `DetectedFace` (needed by SFace alignment and multi-frame liveness).
+- Added `src/face_attendance/detection/` with the `FaceDetector` protocol, `DetectionError`, and a `YuNetDetector` adapter (`cv2.FaceDetectorYN`).
+- YuNet output rows are converted to validated contracts: boxes clamped to the frame, degenerate boxes dropped, scores clamped to [0, 1].
+- Added `scripts/download_models.py` (stdlib-only, SHA256-pinned, atomic writes) for the YuNet and SFace ONNX models; `models/` is gitignored.
+- Added `tests/test_detection.py`; the real-model smoke test auto-skips when models are absent, so CI stays green without downloads.
+
+### Verified
+
+- `python -m unittest discover -s tests`
+- Model download pending: GitHub was unreachable from this machine during the phase; the script verifies hashes on first successful run and fails loudly with the actual hash on mismatch.
+
+### Review
+
+- Clean: cv2 types never cross the detection boundary; the pipeline sees Pydantic contracts only.
+- Clean: missing model file produces a clear "run scripts/download_models.py" error instead of a cv2 stack trace.
+- Note: pinned SHA256 values must be confirmed on the first successful download (mismatch fails loudly and prints the actual hash).
+
 ## Phase 3 - Storage Foundation
 
 Date: 2026-07-06

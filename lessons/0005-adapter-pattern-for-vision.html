@@ -1,0 +1,17 @@
+<!DOCTYPE html>
+<html lang="en">
+<head><meta charset="utf-8"><title>Lesson 5: The Adapter Pattern for Vision Libraries</title></head>
+<body>
+<h1>Lesson 5: The Adapter Pattern for Vision Libraries</h1>
+<p><strong>Objective:</strong> see how an adapter isolates a third-party detector so the rest of the app stays testable and swappable.</p>
+<h2>Key ideas</h2>
+<ul>
+  <li><code>FaceDetector</code> is a <em>protocol</em> (structural interface): anything with <code>detect(frame) -&gt; list[DetectedFace]</code> qualifies — the real YuNet adapter or a test fake.</li>
+  <li>The adapter converts raw library output (a float matrix) into validated contracts at the boundary: clamping boxes to the frame, dropping degenerate boxes, clamping scores. Garbage stops here.</li>
+  <li>Model files are data, not code: they are downloaded by a pinned, hash-verified script and gitignored — never committed.</li>
+  <li>Swapping YuNet for another detector later means writing one new adapter; matching, liveness, and storage never change.</li>
+</ul>
+<h2>Retrieval question</h2>
+<p>Why does the detector return an empty list for zero faces but raise <code>DetectionError</code> for a corrupt frame? <em>(Answer: zero faces is a normal outcome the pipeline must handle; a corrupt frame means the input contract was violated and continuing would hide a real bug.)</em></p>
+</body>
+</html>
