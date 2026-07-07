@@ -1,0 +1,17 @@
+<!DOCTYPE html>
+<html lang="en">
+<head><meta charset="utf-8"><title>Lesson 4: Camera Capture Loops</title></head>
+<body>
+<h1>Lesson 4: Camera Capture Loops</h1>
+<p><strong>Objective:</strong> understand why camera code needs explicit lifecycle management and injectable backends.</p>
+<h2>Key ideas</h2>
+<ul>
+  <li>A camera is an exclusive OS resource: if you do not <code>release()</code> it, the next process (or your next run) cannot open it. Context managers make cleanup automatic.</li>
+  <li><code>VideoCapture.read()</code> failing is normal operation (device unplugged, driver hiccup) — treat it as an expected error path with a clear exception, not a crash.</li>
+  <li>Frame metadata (id, camera, timestamp, size) travels through the pipeline as a validated contract; the raw pixels stay in memory only and are never persisted.</li>
+  <li>Injecting the capture factory (<code>capture_factory=cv2.VideoCapture</code> by default) lets tests simulate every failure mode without hardware.</li>
+</ul>
+<h2>Retrieval question</h2>
+<p>Why does <code>OpenCvCamera.read()</code> raise instead of returning <code>None</code> when a frame fails? <em>(Answer: silent None values propagate as mystery crashes later in the pipeline; failing loudly at the boundary points directly at the camera.)</em></p>
+</body>
+</html>
