@@ -245,6 +245,30 @@ Date: 2026-07-07
 - Clean: one bad frame cannot kill the pipeline; a broken pipeline cannot fail silently.
 - Clean: capture loop and recognition are fully decoupled; display smoothness no longer depends on model latency.
 
+## Phase 10 - Configuration and End-to-End App Flow
+
+Date: 2026-07-07
+
+### Changed
+
+- Added `AppSettings` (`src/face_attendance/config/`): every pipeline tunable in one validated Pydantic model with `FA_*` environment-variable overrides; invalid or unknown variables fail at startup naming the offending variable.
+- Moved model-download logic into the package (`face_attendance/model_files.py`); `scripts/download_models.py` is now a thin wrapper and the CLI gained `download-models`.
+- Added the app layer (`src/face_attendance/app/`): `build_components` factory, `run_enrollment` (frame-gapped quality sampling with operator feedback), `run_attendance` (capture loop + background worker + optional overlay display + deduplicated operator messages + session stats), and report/roster printers.
+- Added `face_attendance/cli.py` with subcommands `init-db`, `download-models`, `enroll`, `attend`, `report`, `employees list|deactivate|activate`; registered the `face-attendance` console script; known errors map to clear messages and exit codes.
+- `list_attendance_events` gained an indexed `limit` mode for reports on large tables.
+- Added `tests/test_config.py` and `tests/test_app.py` (end-to-end enrollment and attendance with fakes, CLI dispatch tests).
+
+### Verified
+
+- `python -m unittest discover -s tests` (102 tests, all green)
+- `python -m pip install -e .` and CLI help output
+
+### Review
+
+- Clean: flows accept injected components and frame sources, so end-to-end paths are tested without hardware.
+- Clean: enrollment refreshes the match index immediately — a new employee is matchable without restarting attendance mode.
+- Fixed during review: repeated `main()` calls no longer leak logging file handles (`force=True`).
+
 ## Phase 3 - Storage Foundation
 
 Date: 2026-07-06

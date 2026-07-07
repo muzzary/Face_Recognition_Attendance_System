@@ -1,0 +1,210 @@
+"""Attendance mode: live camera loop feeding the background pipeline."""
+
+from __future__ import annotations
+
+import logging
+import threading
+from collections import deque
+from dataclasses import dataclass
+from typing import Callable
+
+from face_attendance.app.factory import PipelineComponents
+from face_attendance.capture import CaptureError, Frame, FrameSource
+from face_attendance.contracts import LivenessStatus
+from face_attendance.pipeline import (
+    LatestFrameSlot,
+    PipelineError,
+    RecognitionOutput,
+    RecognitionWorker,
+)
+
+logger = logging.getLogger(__name__)
+
+WINDOW_TITLE = "Face Attendance (press q to quit)"
+
+
+@dataclass
+class AttendStats:
+    """Operator-facing counters for one attendance session."""
+
+    frames_read: int = 0
+    frames_processed: int = 0
+    frames_dropped: int = 0
+    events_logged: int = 0
+    pipeline_failed: bool = False
+
+
+def run_attendance(
+    components: PipelineComponents,
+    frame_source: FrameSource,
+    display: bool = False,
+    on_message: Callable[[str], None] = print,
+    max_frames: int | None = None,
+) -> AttendStats:
+    """Run the attendance loop until quit, camera loss, or max_frames.
+
+    The capture loop stays lightweight: read, hand off to the worker via the
+    latest-frame slot, draw the most recent results. All recognition work
+    happens on the worker thread.
+    """
+
+    stats = AttendStats()
+    slot = LatestFrameSlot()
+    outputs: deque[RecognitionOutput] = deque(maxlen=64)
+    outputs_lock = threading.Lock()
+    worker_errors: deque[Exception] = deque(maxlen=16)
+
+    def on_result(output: RecognitionOutput) -> None:
+        with outputs_lock:
+            outputs.append(output)
+
+    def on_error(error: Exception) -> None:
+        worker_errors.append(error)
+        logger.error("pipeline error: %s", error)
+
+    if components.index.size == 0:
+        on_message(
+            "warning: no enrolled employees in the database; "
+            "every face will be reported as unknown"
+        )
+
+    worker = RecognitionWorker(
+        slot=slot,
+        detector=components.detector,
+        embedder=components.embedder,
+        matcher=components.matcher,
+        liveness_checker=components.liveness,
+        attendance_service=components.attendance,
+        on_result=on_result,
+        on_error=on_error,
+    )
+    worker.start()
+
+    last_message_per_employee: dict[str, str] = {}
+    latest_output: RecognitionOutput | None = None
+
+    try:
+        while max_frames is None or stats.frames_read < max_frames:
+            try:
+                frame = frame_source.read()
+            except CaptureError as exc:
+                if max_frames is not None:
+                    break  # test frame sources simply run out of frames
+                on_message(f"camera failure: {exc}")
+                break
+            stats.frames_read += 1
+            slot.put(frame)
+
+            with outputs_lock:
+                drained = list(outputs)
+                outputs.clear()
+            if drained:
+                latest_output = drained[-1]
+            for output in drained:
+                _report_output(output, stats, last_message_per_employee, on_message)
+
+            fatal = [e for e in worker_errors if isinstance(e, PipelineError)]
+            if fatal or not worker.is_alive():
+                stats.pipeline_failed = True
+                on_message(
+                    "recognition pipeline stopped unexpectedly; see logs for details"
+                )
+                break
+
+            if display and not _show_frame(frame, latest_output, components):
+                break
+    finally:
+        worker.stop()
+        frame_source.close()
+        if display:
+            _close_windows()
+
+    stats.frames_processed = worker.processed_count
+    stats.frames_dropped = slot.dropped_count
+    on_message(
+        f"session ended: {stats.frames_read} frames read, "
+        f"{stats.frames_processed} processed, {stats.frames_dropped} dropped stale, "
+        f"{stats.events_logged} attendance events logged"
+    )
+    return stats
+
+
+def _report_output(
+    output: RecognitionOutput,
+    stats: AttendStats,
+    last_messages: dict[str, str],
+    on_message: Callable[[str], None],
+) -> None:
+    """Print each decision once instead of spamming per frame."""
+
+    for outcome in output.outcomes:
+        if outcome.decision is not None and outcome.decision.logged:
+            event = outcome.decision.event
+            assert event is not None
+            stats.events_logged += 1
+            on_message(
+                f"{event.event_type.value.upper()}: {event.employee_id} at "
+                f"{event.occurred_at.isoformat(timespec='seconds')} "
+                f"(confidence {event.confidence_score:.2f})"
+            )
+            last_messages.pop(event.employee_id, None)
+        elif outcome.match.is_match and outcome.match.employee_id is not None:
+            employee_id = outcome.match.employee_id
+            reason = (
+                outcome.decision.reason
+                if outcome.decision is not None
+                else (outcome.liveness.reason if outcome.liveness else "processing")
+            ) or "processing"
+            if last_messages.get(employee_id) != reason:
+                on_message(f"{employee_id}: {reason}")
+                last_messages[employee_id] = reason
+
+
+def _show_frame(
+    frame: Frame,
+    latest_output: RecognitionOutput | None,
+    components: PipelineComponents,
+) -> bool:
+    """Draw overlays and pump the UI; returns False when the user quits."""
+
+    import cv2
+
+    image = frame.image.copy()
+    if latest_output is not None:
+        for outcome in latest_output.outcomes:
+            box = outcome.face.bounding_box
+            if outcome.decision is not None and outcome.decision.logged:
+                color = (0, 200, 0)
+            elif outcome.liveness is not None and (
+                outcome.liveness.status is LivenessStatus.FAILED
+            ):
+                color = (0, 0, 230)
+            elif outcome.match.is_match:
+                color = (0, 200, 230)
+            else:
+                color = (180, 180, 180)
+            label = (
+                f"{outcome.match.employee_id} {outcome.match.confidence_score:.2f}"
+                if outcome.match.is_match
+                else "unknown"
+            )
+            cv2.rectangle(
+                image, (box.x, box.y), (box.x + box.width, box.y + box.height), color, 2
+            )
+            cv2.putText(
+                image,
+                label,
+                (box.x, max(0, box.y - 8)),
+                cv2.FONT_HERSHEY_SIMPLEX,
+                0.6,
+                color,
+                2,
+            )
+    cv2.imshow(WINDOW_TITLE, image)
+    return (cv2.waitKey(1) & 0xFF) != ord("q")
+
+
+def _close_windows() -> None:
+    import cv2
+
+    cv2.destroyAllWindows()

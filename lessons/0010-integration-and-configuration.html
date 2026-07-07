@@ -1,0 +1,17 @@
+<!DOCTYPE html>
+<html lang="en">
+<head><meta charset="utf-8"><title>Lesson 10: Integration and Configuration</title></head>
+<body>
+<h1>Lesson 10: Integration and Configuration</h1>
+<p><strong>Objective:</strong> see how small tested modules compose into one application without losing testability.</p>
+<h2>Key ideas</h2>
+<ul>
+  <li>The factory builds and wires real components from validated settings; the flows (<code>run_enrollment</code>, <code>run_attendance</code>) accept a components object and a frame source — so end-to-end tests inject fakes and never touch hardware.</li>
+  <li>Configuration is a boundary too: every tunable lives in one validated settings model, overridable via <code>FA_*</code> environment variables. Bad values fail at startup with the variable named, not mid-shift at a kiosk.</li>
+  <li>The CLI is a thin shell: parse arguments, build settings, dispatch, and map known errors to clear messages and exit codes. Business logic never lives in the CLI layer.</li>
+  <li>Operator experience is part of correctness: deduplicated status messages, a session summary (frames read/processed/dropped, events logged), and explicit warnings (empty gallery) beat silent behavior.</li>
+</ul>
+<h2>Retrieval question</h2>
+<p>Why does <code>build_components</code> not fail when model files are missing? <em>(Answer: models load lazily on first frame, so commands that never touch the camera — report, employees list — keep working before models are downloaded; camera commands still fail loudly with a "run download_models" message.)</em></p>
+</body>
+</html>

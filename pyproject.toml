@@ -26,6 +26,9 @@ dependencies = [
 [project.optional-dependencies]
 dev = []
 
+[project.scripts]
+face-attendance = "face_attendance.cli:main"
+
 [project.urls]
 Repository = "https://github.com/muzzary/Face_Recognition_Attendance_System"
 

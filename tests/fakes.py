@@ -4,6 +4,8 @@ from __future__ import annotations
 
 from datetime import datetime, timezone
 
+import time
+
 import numpy as np
 
 from face_attendance.capture import CaptureError, Frame
@@ -13,8 +15,11 @@ from face_attendance.contracts import (
     FaceEmbedding,
     FaceLandmarks,
     FrameMetadata,
+    LivenessResult,
+    LivenessStatus,
     Point,
 )
+from face_attendance.detection.base import DetectionError
 
 
 class FakeVideoCapture:
@@ -139,8 +144,9 @@ class FakeEmbedder:
 class FakeFrameSource:
     """FrameSource that serves a fixed list of frames, then fails explicitly."""
 
-    def __init__(self, frames: list[Frame]) -> None:
+    def __init__(self, frames: list[Frame], read_delay: float = 0.0) -> None:
         self._frames = list(frames)
+        self._read_delay = read_delay
         self.opened = False
         self.closed = False
 
@@ -152,7 +158,58 @@ class FakeFrameSource:
             raise CaptureError("fake camera not opened")
         if not self._frames:
             raise CaptureError("fake camera has no more frames")
+        if self._read_delay > 0.0:
+            time.sleep(self._read_delay)
         return self._frames.pop(0)
 
     def close(self) -> None:
         self.closed = True
+
+
+class ScriptedLiveness:
+    """Liveness checker that always returns a fixed status."""
+
+    def __init__(self, status: LivenessStatus = LivenessStatus.PASSED) -> None:
+        self._status = status
+        self.observed: list[str] = []
+
+    def observe(self, track_id: str, face: DetectedFace) -> LivenessResult:
+        self.observed.append(track_id)
+        return LivenessResult(
+            status=self._status,
+            method="scripted",
+            frame_count=12,
+            confidence_score=0.9,
+            reason="scripted failure" if self._status is LivenessStatus.FAILED else None,
+        )
+
+    def reset(self, track_id: str) -> None:
+        pass
+
+
+class RepeatingDetector:
+    """Returns the same faces for every frame; optionally raises first."""
+
+    def __init__(self, faces: list[DetectedFace], failures: int = 0) -> None:
+        self._faces = faces
+        self._failures = failures
+
+    def detect(self, frame: Frame) -> list[DetectedFace]:
+        if self._failures > 0:
+            self._failures -= 1
+            raise DetectionError("simulated detector failure")
+        return list(self._faces)
+
+
+class RepeatingEmbedder:
+    """Returns the same embedding for every face."""
+
+    def __init__(self, vector: list[float]) -> None:
+        self._vector = vector
+
+    @property
+    def model_name(self) -> str:
+        return "fake-model"
+
+    def extract(self, frame: Frame, face: DetectedFace) -> FaceEmbedding:
+        return make_embedding(self._vector)

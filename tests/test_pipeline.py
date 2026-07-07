@@ -6,61 +6,20 @@ from pathlib import Path
 from tempfile import TemporaryDirectory
 
 from face_attendance.attendance_logging import AttendanceService
-from face_attendance.contracts import (
-    DetectedFace,
-    EmployeeRecord,
-    LivenessResult,
-    LivenessStatus,
-)
-from face_attendance.detection.base import DetectionError
+from face_attendance.contracts import EmployeeRecord, LivenessStatus
 from face_attendance.matching import EmployeeEmbeddingIndex, EmployeeMatcher
 from face_attendance.pipeline import LatestFrameSlot, PipelineError, RecognitionWorker
 from face_attendance.storage import AttendanceStorage, initialize_database
-from fakes import FakeEmbedder, make_detected_face, make_embedding, make_frame
+from fakes import (
+    RepeatingDetector,
+    RepeatingEmbedder,
+    ScriptedLiveness,
+    make_detected_face,
+    make_embedding,
+    make_frame,
+)
 
 NOW = datetime(2026, 7, 7, 9, 0, tzinfo=timezone.utc)
-
-
-class ScriptedLiveness:
-    def __init__(self, status: LivenessStatus = LivenessStatus.PASSED) -> None:
-        self._status = status
-        self.observed: list[str] = []
-
-    def observe(self, track_id: str, face: DetectedFace) -> LivenessResult:
-        self.observed.append(track_id)
-        return LivenessResult(
-            status=self._status,
-            method="scripted",
-            frame_count=12,
-            confidence_score=0.9,
-            reason="scripted failure" if self._status is LivenessStatus.FAILED else None,
-        )
-
-
-class RepeatingDetector:
-    """Returns the same faces for every frame; optionally raises first."""
-
-    def __init__(self, faces: list[DetectedFace], failures: int = 0) -> None:
-        self._faces = faces
-        self._failures = failures
-
-    def detect(self, frame):
-        if self._failures > 0:
-            self._failures -= 1
-            raise DetectionError("simulated detector failure")
-        return list(self._faces)
-
-
-class RepeatingEmbedder:
-    def __init__(self, vector: list[float]) -> None:
-        self._vector = vector
-
-    @property
-    def model_name(self) -> str:
-        return "fake-model"
-
-    def extract(self, frame, face):
-        return make_embedding(self._vector)
 
 
 class LatestFrameSlotTests(unittest.TestCase):

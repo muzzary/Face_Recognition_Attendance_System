@@ -166,7 +166,9 @@ class AttendanceStorage:
             )
             return int(cursor.lastrowid)
 
-    def list_attendance_events(self, employee_id: str | None = None) -> list[AttendanceEvent]:
+    def list_attendance_events(
+        self, employee_id: str | None = None, limit: int | None = None
+    ) -> list[AttendanceEvent]:
         query = """
             SELECT employee_id, occurred_at, event_type, confidence_score, match_distance
             FROM attendance_events
@@ -175,11 +177,19 @@ class AttendanceStorage:
         if employee_id is not None:
             query += " WHERE employee_id = ?"
             parameters = (employee_id,)
-        query += " ORDER BY occurred_at, attendance_event_id"
+        if limit is not None:
+            # Newest N via the index, then reversed to chronological order.
+            query += " ORDER BY occurred_at DESC, attendance_event_id DESC LIMIT ?"
+            parameters = (*parameters, int(limit))
+        else:
+            query += " ORDER BY occurred_at, attendance_event_id"
 
         with self._connect() as connection:
             rows = connection.execute(query, parameters).fetchall()
-        return [_attendance_event_from_row(row) for row in rows]
+        events = [_attendance_event_from_row(row) for row in rows]
+        if limit is not None:
+            events.reverse()
+        return events
 
     def get_last_attendance_event(self, employee_id: str) -> AttendanceEvent | None:
         """Most recent event for an employee; drives clock-in/out toggling."""
