@@ -7,7 +7,14 @@ from datetime import datetime, timezone
 import numpy as np
 
 from face_attendance.capture import CaptureError, Frame
-from face_attendance.contracts import FrameMetadata
+from face_attendance.contracts import (
+    BoundingBox,
+    DetectedFace,
+    FaceEmbedding,
+    FaceLandmarks,
+    FrameMetadata,
+    Point,
+)
 
 
 class FakeVideoCapture:
@@ -62,6 +69,71 @@ def make_frame(
         height=image.shape[0],
     )
     return Frame(image=image, metadata=metadata)
+
+
+def make_landmarks(x: float = 15.0, y: float = 20.0) -> FaceLandmarks:
+    return FaceLandmarks(
+        right_eye=Point(x=x, y=y),
+        left_eye=Point(x=x + 15.0, y=y),
+        nose_tip=Point(x=x + 7.0, y=y + 8.0),
+        mouth_right=Point(x=x + 3.0, y=y + 17.0),
+        mouth_left=Point(x=x + 13.0, y=y + 17.0),
+    )
+
+
+def make_detected_face(
+    frame: Frame | None = None,
+    x: int = 10,
+    y: int = 12,
+    width: int = 100,
+    height: int = 100,
+    confidence: float = 0.95,
+    landmarks: FaceLandmarks | None = None,
+) -> DetectedFace:
+    if frame is None:
+        frame = make_frame(width=320, height=240)
+    return DetectedFace(
+        frame=frame.metadata,
+        bounding_box=BoundingBox(x=x, y=y, width=width, height=height),
+        detection_confidence=confidence,
+        landmarks=landmarks if landmarks is not None else make_landmarks(),
+    )
+
+
+def make_embedding(
+    vector: list[float] | None = None, model_name: str = "fake-model"
+) -> FaceEmbedding:
+    if vector is None:
+        vector = [1.0, 0.0, 0.0, 0.0]
+    return FaceEmbedding(vector=vector, dimensions=len(vector), model_name=model_name)
+
+
+class FakeDetector:
+    """FaceDetector returning a scripted list of faces per call."""
+
+    def __init__(self, results: list[list[DetectedFace]]) -> None:
+        self._results = list(results)
+
+    def detect(self, frame: Frame) -> list[DetectedFace]:
+        if not self._results:
+            return []
+        return self._results.pop(0)
+
+
+class FakeEmbedder:
+    """EmbeddingExtractor returning scripted embeddings per call."""
+
+    def __init__(self, embeddings: list[FaceEmbedding]) -> None:
+        self._embeddings = list(embeddings)
+
+    @property
+    def model_name(self) -> str:
+        return "fake-model"
+
+    def extract(self, frame: Frame, face: DetectedFace) -> FaceEmbedding:
+        if not self._embeddings:
+            raise AssertionError("FakeEmbedder ran out of scripted embeddings")
+        return self._embeddings.pop(0)
 
 
 class FakeFrameSource:

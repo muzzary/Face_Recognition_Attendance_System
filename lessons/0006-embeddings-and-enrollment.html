@@ -1,0 +1,17 @@
+<!DOCTYPE html>
+<html lang="en">
+<head><meta charset="utf-8"><title>Lesson 6: Embeddings and Enrollment Quality</title></head>
+<body>
+<h1>Lesson 6: Embeddings and Enrollment Quality</h1>
+<p><strong>Objective:</strong> understand what an embedding is and why enrollment quality gates matter more as headcount grows.</p>
+<h2>Key ideas</h2>
+<ul>
+  <li>An embedding maps a face image to a point in a 128-dimensional space where the same person's faces cluster together. Distance between points is <em>similarity</em>, not identity — a threshold turns it into a decision.</li>
+  <li>Privacy consequence: we store only these numbers. The original image cannot be reconstructed from an SFace vector, and raw crops are discarded immediately after feature extraction.</li>
+  <li>Scale consequence: with 1000 employees, every low-quality enrollment enlarges the false-accept surface for all of them. Gates (one face only, confidence, size, sample consistency) keep the gallery clean at the source.</li>
+  <li>Multiple samples per employee capture pose/lighting variation; matching later takes the best score across samples.</li>
+</ul>
+<h2>Retrieval question</h2>
+<p>Why check pairwise similarity between enrollment samples? <em>(Answer: it catches a second person or a corrupted capture sneaking into the sample set before it poisons the stored gallery.)</em></p>
+</body>
+</html>

@@ -158,6 +158,27 @@ Date: 2026-07-07
 - Clean: missing model file produces a clear "run scripts/download_models.py" error instead of a cv2 stack trace.
 - Note: pinned SHA256 values must be confirmed on the first successful download (mismatch fails loudly and prints the actual hash).
 
+## Phase 6 - Embeddings and Enrollment
+
+Date: 2026-07-07
+
+### Changed
+
+- Added `src/face_attendance/embeddings/` with the `EmbeddingExtractor` protocol, `EmbeddingError`, and an `SFaceEmbedder` adapter (`cv2.FaceRecognizerSF`, 128-d vectors).
+- Added `EnrollmentService` with quality gates: exactly one face in frame, minimum detection confidence, minimum face size, minimum sample count, and pairwise-consistency checks across samples.
+- Added `matching/similarity.py` with defensive cosine-similarity helpers (zero-norm and dimension-mismatch failures are explicit).
+- Extended `tests/fakes.py` with fake detector/embedder and contract factories; added `tests/test_enrollment.py`.
+
+### Verified
+
+- `python -m unittest discover -s tests` (48 tests, all green)
+
+### Review
+
+- Clean: aligned face crops are discarded inside the embedder; only numeric vectors leave the module.
+- Clean: enrollment consistency gate rejects sample sets contaminated by a second person.
+- Clean: duplicate enrollment fails with a clear message instead of a database error.
+
 ## Phase 3 - Storage Foundation
 
 Date: 2026-07-06
