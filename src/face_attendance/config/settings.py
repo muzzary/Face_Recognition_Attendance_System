@@ -9,6 +9,7 @@ from __future__ import annotations
 
 import os
 from pathlib import Path
+from typing import Literal
 
 from pydantic import BaseModel, ConfigDict, Field, ValidationError
 
@@ -29,8 +30,10 @@ class AppSettings(BaseModel):
     models_dir: Path = Path("models")
     log_dir: Path = Path("logs")
 
-    # Camera
+    # Camera. Backend "auto" tries the platform default, then falls back to
+    # DirectShow on Windows (some webcams open under MSMF but deliver nothing).
     camera_index: int = Field(default=0, ge=0)
+    camera_backend: Literal["auto", "default", "msmf", "dshow"] = "auto"
 
     # Detection
     detection_score_threshold: float = Field(default=0.8, gt=0.0, le=1.0)

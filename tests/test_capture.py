@@ -1,4 +1,5 @@
 import unittest
+from unittest.mock import patch
 
 import numpy as np
 
@@ -81,6 +82,44 @@ class OpenCvCameraTests(unittest.TestCase):
     def test_negative_camera_index_rejected(self) -> None:
         with self.assertRaises(ValueError):
             OpenCvCamera(camera_index=-1)
+
+    def test_unknown_backend_rejected(self) -> None:
+        with self.assertRaises(ValueError):
+            OpenCvCamera(backend="v4l2")
+
+
+class BackendFallbackTests(unittest.TestCase):
+    """The auto backend must skip captures that open but deliver no frames."""
+
+    def test_auto_falls_back_when_default_backend_delivers_no_frames(self) -> None:
+        silent = FakeVideoCapture(opened=True, frames=[])  # opens, never delivers
+        working = FakeVideoCapture(opened=True, frames=[make_image()] * 20)
+
+        def fake_video_capture(index, flag=None):
+            return silent if flag is None else working
+
+        camera = OpenCvCamera(backend="auto")
+        with patch("cv2.VideoCapture", side_effect=fake_video_capture), patch(
+            "face_attendance.capture.camera.sys.platform", "win32"
+        ), patch("face_attendance.capture.camera.time.sleep"):
+            camera.open()
+            frame = camera.read()
+        camera.close()
+
+        self.assertTrue(silent.released)
+        self.assertEqual(frame.metadata.width, 64)
+
+    def test_all_backends_failing_raises_with_details(self) -> None:
+        silent = FakeVideoCapture(opened=True, frames=[])
+
+        camera = OpenCvCamera(backend="default")
+        with patch("cv2.VideoCapture", return_value=silent), patch(
+            "face_attendance.capture.camera.time.sleep"
+        ):
+            with self.assertRaises(CaptureError) as ctx:
+                camera.open()
+
+        self.assertIn("delivered no frames", str(ctx.exception))
 
 
 if __name__ == "__main__":

@@ -134,7 +134,7 @@ def _require_models(settings: AppSettings) -> None:
 
 def _make_camera(settings: AppSettings, camera_index: int | None) -> OpenCvCamera:
     index = camera_index if camera_index is not None else settings.camera_index
-    camera = OpenCvCamera(camera_index=index)
+    camera = OpenCvCamera(camera_index=index, backend=settings.camera_backend)
     camera.open()
     return camera
 

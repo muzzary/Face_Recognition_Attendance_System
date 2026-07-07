@@ -1,5 +1,25 @@
 # Phase Log
 
+## Manual Test Follow-up - Camera Backend Fallback
+
+Date: 2026-07-07
+
+### Changed
+
+- First manual enrollment attempt failed: this machine's webcam opens under OpenCV's default Windows backend (MSMF) but never delivers frames (`OnReadSample error -2147023169`); DirectShow works.
+- `OpenCvCamera` now verifies at open time that the chosen backend actually delivers a frame, and with `backend="auto"` (default) falls back to DirectShow on Windows; the chosen backend and fallback reason are logged.
+- Added `FA_CAMERA_BACKEND` setting (`auto`/`default`/`msmf`/`dshow`) wired through settings and CLI.
+- Injected capture factories (tests, custom rigs) bypass probing, so all prior capture tests are unchanged.
+
+### Verified
+
+- `python -m unittest discover -s tests` (109 tests, all green)
+- Real hardware: auto backend rejected MSMF after probe and delivered 640x480 frames via DirectShow.
+
+### Review
+
+- Clean: when every backend fails, the error lists each backend's failure reason plus a pointer to Windows camera privacy settings.
+
 ## Phase 0 - Repository Root Setup
 
 Date: 2026-07-06
