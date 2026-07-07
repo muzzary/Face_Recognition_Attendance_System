@@ -1,0 +1,18 @@
+<!DOCTYPE html>
+<html lang="en">
+<head><meta charset="utf-8"><title>Lesson 8: Multi-Frame Liveness</title></head>
+<body>
+<h1>Lesson 8: Multi-Frame Liveness</h1>
+<p><strong>Objective:</strong> understand why anti-spoofing needs evidence over time, and what each check catches.</p>
+<h2>Key ideas</h2>
+<ul>
+  <li>A single frame cannot distinguish a face from a photo of a face — both produce valid detections and embeddings. Liveness must come from <em>behavior across frames</em>.</li>
+  <li>Check 1, motion presence: live heads always drift slightly. A landmark centroid that stays pixel-still for a whole window means a mounted photo.</li>
+  <li>Check 2, non-rigidity: a hand-held photo moves, but as a rigid plane. Removing translation, scale, and rotation from each frame's landmarks cancels rigid motion; whatever remains is the face itself deforming. Photos leave ~zero residual, live faces do not.</li>
+  <li>Normalizing thresholds by inter-ocular distance makes them independent of camera resolution and standing distance.</li>
+  <li>Honest limitation: replaying a <em>video</em> on a screen produces non-rigid motion and defeats this method. Catching it needs texture/moire analysis or depth sensors — documented, not hidden.</li>
+</ul>
+<h2>Retrieval question</h2>
+<p>Why does an incomplete evidence window return UNKNOWN instead of PASSED or FAILED? <em>(Answer: no decision without evidence — logging attendance on a half-window would let a spoof through during the first frames, and failing would bounce every person who just arrived.)</em></p>
+</body>
+</html>

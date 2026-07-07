@@ -201,6 +201,27 @@ Date: 2026-07-07
 - Clean: index refresh is lock-protected for the background-worker phase.
 - Clean: inconsistent gallery dimensions (mixed models) fail loudly at index build, not silently at match time.
 
+## Phase 8 - Multi-Frame Liveness
+
+Date: 2026-07-07
+
+### Changed
+
+- Added `MicroMovementLivenessChecker` in `src/face_attendance/liveness/`: per-identity windows of landmark observations evaluated on two signals — motion presence (rejects static photos) and non-rigid deformation after removing translation/scale/rotation (rejects hand-waved photos and screens showing stills).
+- Thresholds are normalized by inter-ocular distance, so they are resolution- and distance-independent; all parameters are constructor-configurable.
+- Track hygiene: windows reset when a person leaves the frame (frame-id gap) and tracks are independent per identity.
+- Added `tests/test_liveness.py` with synthetic sequences: live face passes; static photo, waved photo, and rotated photo fail with explicit reasons.
+
+### Verified
+
+- `python -m unittest discover -s tests` (77 tests, all green)
+
+### Review
+
+- Clean: liveness returns UNKNOWN (never PASSED) until a full evidence window exists, and the attendance service refuses to log on UNKNOWN.
+- Documented limitation: a screen replaying a *video* of the employee produces non-rigid motion and is not caught; this is stated in code docs and will be in the README.
+- Note: default thresholds are conservative estimates; the manual spoof-test checkpoint should confirm them on the real camera, and they are configurable if calibration is needed.
+
 ## Phase 3 - Storage Foundation
 
 Date: 2026-07-06
