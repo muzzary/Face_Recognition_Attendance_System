@@ -1,5 +1,24 @@
 # Phase Log
 
+## Manual Test Follow-up - Camera Backend Cache
+
+Date: 2026-07-08
+
+### Changed
+
+- The auto backend probe made every fresh launch pay 10-20 s before falling back to DirectShow on this machine. Added `capture/backend_cache.py`: after a successful auto probe, the working backend is stored in `data/camera_backend.json` (per camera index) and tried first on later launches; a stale cache entry (camera swapped, driver change) is discarded and re-probed automatically.
+- `OpenCvCamera` now exposes `backend_used`; the CLI opens cameras via `open_camera_remembering_backend`.
+- Cache is an optimization only: unreadable/corrupt cache files are ignored with a warning, never fatal.
+
+### Verified
+
+- `python -m unittest discover -s tests` (117 tests, all green)
+- Real hardware: first open 18.9 s (probe + store), second open 0.9 s (cached, DirectShow).
+
+### Review
+
+- Clean: forced backends (`FA_CAMERA_BACKEND=dshow` etc.) bypass the cache entirely; cache stores only concrete backend names, never "auto".
+
 ## Manual Test Follow-up - Camera Backend Fallback
 
 Date: 2026-07-07

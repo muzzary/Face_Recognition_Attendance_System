@@ -57,7 +57,7 @@ All tunables are environment variables validated at startup (defaults in parenth
 | `FA_DATABASE_PATH` | SQLite file (`data/attendance.db`) |
 | `FA_MODELS_DIR` | ONNX model directory (`models`) |
 | `FA_CAMERA_INDEX` | camera device index (`0`) |
-| `FA_CAMERA_BACKEND` | `auto`, `default`, `msmf`, `dshow` (`auto`) — auto probes the default backend and falls back to DirectShow on Windows if it opens but delivers no frames |
+| `FA_CAMERA_BACKEND` | `auto`, `default`, `msmf`, `dshow` (`auto`) — auto probes the default backend and falls back to DirectShow on Windows if it opens but delivers no frames. The working backend is cached in `data/camera_backend.json`, so only the first launch pays the probe cost (~19 s → ~1 s measured) |
 | `FA_SIMILARITY_THRESHOLD` | cosine match threshold (`0.363`) |
 | `FA_DETECTION_SCORE_THRESHOLD` | YuNet face score floor (`0.8`) |
 | `FA_ENROLLMENT_SAMPLES` | samples per enrollment (`5`) |

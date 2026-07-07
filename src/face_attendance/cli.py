@@ -23,7 +23,11 @@ from face_attendance.app import (
     run_attendance,
     run_enrollment,
 )
-from face_attendance.capture import CaptureError, OpenCvCamera
+from face_attendance.capture import (
+    CaptureError,
+    OpenCvCamera,
+    open_camera_remembering_backend,
+)
 from face_attendance.config import AppSettings, SettingsError
 from face_attendance.detection import DetectionError
 from face_attendance.embeddings import EmbeddingError, EnrollmentError
@@ -134,9 +138,11 @@ def _require_models(settings: AppSettings) -> None:
 
 def _make_camera(settings: AppSettings, camera_index: int | None) -> OpenCvCamera:
     index = camera_index if camera_index is not None else settings.camera_index
-    camera = OpenCvCamera(camera_index=index, backend=settings.camera_backend)
-    camera.open()
-    return camera
+    # The cache lives next to the database and remembers which backend this
+    # camera actually delivers frames on, so only the first launch pays the
+    # auto-probe cost.
+    cache_path = settings.database_path.parent / "camera_backend.json"
+    return open_camera_remembering_backend(index, settings.camera_backend, cache_path)
 
 
 def main(argv: list[str] | None = None) -> int:

@@ -68,11 +68,18 @@ class OpenCvCamera:
         self._capture_factory = capture_factory
         self._backend = backend
         self._capture: object | None = None
+        self._backend_used: str | None = None
         self._frame_counter = 0
 
     @property
     def camera_id(self) -> str:
         return self._camera_id
+
+    @property
+    def backend_used(self) -> str | None:
+        """Backend that actually delivered frames; None before open()."""
+
+        return self._backend_used
 
     def open(self) -> None:
         if self._capture is not None:
@@ -92,8 +99,11 @@ class OpenCvCamera:
                     "check that the device exists and is not in use"
                 )
             self._capture = capture
+            self._backend_used = "custom"
             return
-        self._capture = _create_verified_capture(self._camera_index, self._backend)
+        self._capture, self._backend_used = _create_verified_capture(
+            self._camera_index, self._backend
+        )
 
     def read(self) -> Frame:
         if self._capture is None:
@@ -177,8 +187,11 @@ def _probe_delivers_frames(capture: object, attempts: int = 10) -> bool:
     return False
 
 
-def _create_verified_capture(camera_index: int, backend: str) -> object:
-    """Open the camera with the first backend that actually delivers frames."""
+def _create_verified_capture(camera_index: int, backend: str) -> tuple[object, str]:
+    """Open the camera with the first backend that actually delivers frames.
+
+    Returns the capture and the name of the backend that worked.
+    """
 
     import cv2
 
@@ -208,7 +221,7 @@ def _create_verified_capture(camera_index: int, backend: str) -> object:
                 name,
                 "; ".join(failures),
             )
-        return capture
+        return capture, name
 
     raise CaptureError(
         f"camera index {camera_index} is unusable with every backend tried: "
