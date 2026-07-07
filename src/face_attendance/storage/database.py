@@ -12,7 +12,7 @@ from typing import Any
 from face_attendance.contracts import AttendanceEvent, EmployeeRecord, FaceEmbedding
 
 
-SCHEMA_VERSION = 1
+SCHEMA_VERSION = 2
 
 
 class StorageError(RuntimeError):
@@ -49,9 +49,13 @@ class AttendanceStorage:
     @contextmanager
     def _connect(self) -> Iterator[sqlite3.Connection]:
         try:
-            connection = sqlite3.connect(self._database_path)
+            connection = sqlite3.connect(self._database_path, timeout=5.0)
             connection.row_factory = sqlite3.Row
             connection.execute("PRAGMA foreign_keys = ON")
+            # WAL lets the attendance writer and report readers overlap
+            # without "database is locked" errors under load.
+            connection.execute("PRAGMA journal_mode = WAL")
+            connection.execute("PRAGMA busy_timeout = 5000")
             yield connection
             connection.commit()
         except sqlite3.Error as exc:
@@ -177,6 +181,43 @@ class AttendanceStorage:
             rows = connection.execute(query, parameters).fetchall()
         return [_attendance_event_from_row(row) for row in rows]
 
+    def get_last_attendance_event(self, employee_id: str) -> AttendanceEvent | None:
+        """Most recent event for an employee; drives clock-in/out toggling."""
+
+        with self._connect() as connection:
+            row = connection.execute(
+                """
+                SELECT employee_id, occurred_at, event_type, confidence_score, match_distance
+                FROM attendance_events
+                WHERE employee_id = ?
+                ORDER BY occurred_at DESC, attendance_event_id DESC
+                LIMIT 1
+                """,
+                (employee_id,),
+            ).fetchone()
+        if row is None:
+            return None
+        return _attendance_event_from_row(row)
+
+    def set_employee_active(self, employee_id: str, is_active: bool) -> None:
+        """Activate or deactivate an employee; deactivated staff never match."""
+
+        with self._connect() as connection:
+            cursor = connection.execute(
+                "UPDATE employees SET is_active = ? WHERE employee_id = ?",
+                (int(is_active), employee_id),
+            )
+            if cursor.rowcount == 0:
+                raise StorageError(f"employee {employee_id} does not exist")
+
+    def count_employees(self, active_only: bool = False) -> int:
+        query = "SELECT COUNT(*) AS total FROM employees"
+        if active_only:
+            query += " WHERE is_active = 1"
+        with self._connect() as connection:
+            row = connection.execute(query).fetchone()
+        return int(row["total"])
+
     def list_table_columns(self) -> dict[str, list[str]]:
         """Return table columns for safety tests and lightweight diagnostics."""
 
@@ -264,4 +305,11 @@ CREATE TABLE IF NOT EXISTS attendance_events (
     match_distance REAL NOT NULL CHECK (match_distance >= 0.0),
     FOREIGN KEY (employee_id) REFERENCES employees(employee_id) ON DELETE RESTRICT
 );
+
+-- Hot paths at scale: per-employee event history (cooldown/toggle lookups)
+-- and per-employee embedding loads for the in-memory match index.
+CREATE INDEX IF NOT EXISTS idx_attendance_employee_time
+    ON attendance_events(employee_id, occurred_at);
+CREATE INDEX IF NOT EXISTS idx_embeddings_employee
+    ON face_embeddings(employee_id);
 """

@@ -1,0 +1,17 @@
+<!DOCTYPE html>
+<html lang="en">
+<head><meta charset="utf-8"><title>Lesson 7: Thresholds and Vectorized Matching</title></head>
+<body>
+<h1>Lesson 7: Thresholds and Vectorized Matching</h1>
+<p><strong>Objective:</strong> understand threshold trade-offs and why matching stays fast at 1000 employees.</p>
+<h2>Key ideas</h2>
+<ul>
+  <li>A similarity score is not identity. The threshold (0.363 cosine similarity for SFace, from OpenCV's published evaluation) splits scores into match/non-match, trading <em>false accepts</em> (impostor passes) against <em>false rejects</em> (employee bounced).</li>
+  <li>Raising the threshold makes spoofing/misidentification harder but frustrates legitimate users; lowering it does the opposite. Attendance systems usually prefer false rejects — a bounced employee retries, a false accept corrupts payroll data.</li>
+  <li>Scale: instead of looping over employees, all gallery vectors are stacked into one L2-normalized matrix; matching is a single <code>matrix @ probe</code> product. 3000x128 floats is ~0.4 MB and multiplies in microseconds — CPU-friendly at 1000 employees.</li>
+  <li>The clock-in/out toggle plus cooldown turns raw recognitions into meaningful events: standing at the camera for 30 seconds should log once, not thirty times.</li>
+</ul>
+<h2>Retrieval question</h2>
+<p>Why does the matcher return the best match's distance even when it is a non-match? <em>(Answer: for observability — logging near-misses lets you tune the threshold from real data instead of guessing.)</em></p>
+</body>
+</html>

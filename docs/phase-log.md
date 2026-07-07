@@ -179,6 +179,28 @@ Date: 2026-07-07
 - Clean: enrollment consistency gate rejects sample sets contaminated by a second person.
 - Clean: duplicate enrollment fails with a clear message instead of a database error.
 
+## Phase 7 - Matching, Attendance Logging, and Storage Scale Upgrade
+
+Date: 2026-07-07
+
+### Changed
+
+- Added `EmployeeEmbeddingIndex`: a thread-safe, L2-normalized in-memory matrix of all active embeddings; matching is one vectorized matrix-vector product (tested at 1000 employees x 3 samples in well under 50 ms per match, actual ~sub-millisecond).
+- Added `EmployeeMatcher` applying the documented SFace cosine threshold (0.363 similarity); empty-gallery and unknown faces return explicit non-matches.
+- Added `AttendanceService`: clock-in/out toggling from last event, per-employee cooldown against duplicate logs, and hard gates on match + passed liveness.
+- Storage scale upgrade (schema v2): WAL journal mode, busy timeout, indexes on `attendance_events(employee_id, occurred_at)` and `face_embeddings(employee_id)`; new `get_last_attendance_event`, `set_employee_active`, `count_employees` methods. Re-running `initialize_database` migrates v1 databases in place (indexes are `IF NOT EXISTS`).
+- Added `tests/test_matching.py` (incl. 1000-employee scalability guard) and `tests/test_attendance_service.py`.
+
+### Verified
+
+- `python -m unittest discover -s tests` (68 tests, all green)
+
+### Review
+
+- Clean: unknown faces and failed liveness can never create attendance rows (tested).
+- Clean: index refresh is lock-protected for the background-worker phase.
+- Clean: inconsistent gallery dimensions (mixed models) fail loudly at index build, not silently at match time.
+
 ## Phase 3 - Storage Foundation
 
 Date: 2026-07-06
