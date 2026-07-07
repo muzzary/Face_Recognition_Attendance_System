@@ -11,23 +11,14 @@ The Khizex specification requires a Python biometric attendance system using com
 - Background processing through Python concurrency tools.
 - Lightweight storage, with SQLite acceptable.
 
-## Current Decision
+## Current Decision (final, Phase 4+)
 
-- Pydantic is a default runtime dependency because Phase 2 imports it directly for core boundary models.
-- Heavier vision and recognition dependency families remain optional extras in `pyproject.toml`.
-- We will install each optional extra when the matching implementation phase begins.
+Core runtime dependencies: `pydantic`, `numpy`, `opencv-python`. Nothing else.
 
-## Why Not Install Everything Now?
-
-- OpenCV and face-recognition packages can be heavy on Windows.
-- `face_recognition` depends on dlib, which can be difficult to install.
-- InsightFace may require ONNX runtime choices that should match the machine and demo needs.
-- Installing only what a phase needs keeps failures easier to diagnose.
-
-## Planned Installs by Phase
-
-- Phase 4 or 5: install `.[vision]` for OpenCV and NumPy.
-- Phase 6: choose and install either `.[recognition-face-recognition]`, `.[recognition-insightface]`, or a better documented equivalent.
+- Detection uses **YuNet** (`cv2.FaceDetectorYN`) and embeddings use **SFace** (`cv2.FaceRecognizerSF`) — both ship inside `opencv-python`, so no separate recognition library is needed.
+- The previously declared `face_recognition` / InsightFace extras were removed: dlib is painful to build on Windows, and InsightFace pulls in onnxruntime for accuracy this project does not require. SFace is accurate enough for a 1000-employee gallery and keeps installs one-command.
+- Model weights are data, not dependencies: two ONNX files fetched by `scripts/download_models.py` with pinned SHA256 hashes.
+- Both adapters sit behind local protocols, so a stronger embedding model can be swapped in later without touching the pipeline.
 
 ## Standard Library Pieces
 

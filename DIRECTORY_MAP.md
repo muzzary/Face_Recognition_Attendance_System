@@ -1,61 +1,73 @@
 # Directory Map
 
-Last updated: 2026-07-06
+Last updated: 2026-07-07
 
 ## Root
 
-- `.gitignore` - ignores Python caches, virtual environments, secrets, runtime logs, recordings, and local biometric data.
+- `.gitignore` - ignores Python caches, virtual environments, secrets, runtime logs, recordings, downloaded models, and local biometric data.
 - `AGENTS.md` - project-specific working instructions and engineering standards.
 - `DIRECTORY_MAP.md` - quick navigation map for every important folder and file.
 - `MISSION.md` - teaching mission for learning the project while building it.
 - `RESOURCES.md` - curated source list for learning and implementation decisions.
 - `NOTES.md` - teaching and collaboration notes.
-- `pyproject.toml` - Python packaging metadata, build backend, package discovery, and future tool configuration.
-- `README.md` - project overview, setup notes, and current build status.
-- `.github/workflows/ci.yml` - lightweight CI that runs repository structure tests on push and pull request.
+- `pyproject.toml` - packaging metadata, core dependencies (pydantic, numpy, opencv-python), and the `face-attendance` console script.
+- `README.md` - setup, usage, threshold rationale, liveness limitations, concurrency design, scalability, and security notes.
+- `.github/workflows/ci.yml` - CI running the full test suite on push and pull request.
 
-## Source
+## Source (`src/face_attendance/`)
 
-- `src/face_attendance/__init__.py` - package marker for the attendance system.
-- `src/face_attendance/contracts.py` - Pydantic data contracts for frame metadata, detections, embeddings, employees, matching, liveness, and attendance events.
-- `src/face_attendance/capture/` - camera and frame acquisition code.
-- `src/face_attendance/detection/` - face detection code.
-- `src/face_attendance/embeddings/` - facial embedding extraction code.
-- `src/face_attendance/matching/` - employee matching and scoring code.
-- `src/face_attendance/liveness/` - anti-spoofing and multi-frame liveness checks.
-- `src/face_attendance/storage/` - database access, employee records, and attendance persistence.
-- `src/face_attendance/storage/__init__.py` - public storage exports.
-- `src/face_attendance/storage/database.py` - SQLite schema initialization and attendance repository.
-- `src/face_attendance/attendance_logging/` - attendance event logging helpers. Named to avoid conflicting with Python's standard `logging` module.
-- `src/face_attendance/config/` - application configuration loading and validation.
+- `__init__.py` - package marker.
+- `contracts.py` - Pydantic data contracts: frames, boxes, landmarks, embeddings, employees, matches, liveness, attendance events.
+- `model_files.py` - pinned ONNX model specs and hash-verified download logic (stdlib only).
+- `cli.py` - `face-attendance` command-line interface (init-db, download-models, enroll, attend, report, employees).
+- `capture/` - `OpenCvCamera`, `FrameSource` protocol, in-memory `Frame`, `CaptureError`.
+- `detection/` - `FaceDetector` protocol, `DetectionError`, `YuNetDetector` adapter (cv2.FaceDetectorYN).
+- `embeddings/` - `EmbeddingExtractor` protocol, `SFaceEmbedder` adapter (cv2.FaceRecognizerSF), `EnrollmentService` with quality gates.
+- `matching/` - cosine similarity helpers, `EmployeeEmbeddingIndex` (vectorized in-memory gallery), `EmployeeMatcher` (threshold decisions).
+- `liveness/` - `MicroMovementLivenessChecker`: multi-frame motion + non-rigidity anti-spoofing.
+- `pipeline/` - `LatestFrameSlot` (stale-frame dropping) and `RecognitionWorker` (background recognition thread).
+- `attendance_logging/` - `AttendanceService`: clock-in/out toggling, cooldown, liveness gating. Named to avoid clashing with stdlib `logging`.
+- `storage/` - SQLite schema (WAL, indexes) and `AttendanceStorage` repository.
+- `config/` - `AppSettings`: validated runtime configuration with `FA_*` env overrides.
+- `app/` - application flows: `factory.py` (component wiring), `enroll.py`, `attend.py`, `report.py`.
+
+## Scripts
+
+- `scripts/download_models.py` - thin CLI wrapper around `face_attendance.model_files`.
 
 ## Tests
 
-- `tests/test_repository_structure.py` - starter safety tests for required docs and source folders.
-- `tests/test_package_import.py` - verifies the installable package can be imported.
-- `tests/test_contracts.py` - verifies core Pydantic data contracts accept valid payloads and reject malformed ones.
-- `tests/test_storage.py` - verifies SQLite schema creation, employee/embedding/event persistence, foreign keys, and no raw image columns.
+- `tests/fakes.py` - shared hardware-free fakes (camera, detector, embedder, liveness) and contract factories.
+- `tests/test_repository_structure.py` - required docs and source folders exist.
+- `tests/test_package_import.py` - installable package imports.
+- `tests/test_contracts.py` - contract validation behavior.
+- `tests/test_storage.py` - schema, round trips, foreign keys, no raw-image columns.
+- `tests/test_capture.py` - camera open/read/corrupt/disconnect error paths.
+- `tests/test_detection.py` - YuNet row conversion, clamping, model-missing errors.
+- `tests/test_enrollment.py` - sample quality gates and enrollment persistence.
+- `tests/test_matching.py` - index correctness, thresholds, 1000-employee latency guard.
+- `tests/test_attendance_service.py` - clock-in/out toggling, cooldown, gating; storage upgrade methods.
+- `tests/test_liveness.py` - synthetic live/static/waved/rotated sequences.
+- `tests/test_pipeline.py` - backpressure, worker error policy, shutdown.
+- `tests/test_config.py` - settings defaults, env overrides, validation errors.
+- `tests/test_app.py` - end-to-end enrollment/attendance with fakes, CLI dispatch.
 
 ## Docs
 
-- `docs/dependency-strategy.md` - required dependency families, optional extras, and when each dependency should be installed.
+- `docs/dependency-strategy.md` - dependency decisions and rationale.
 - `docs/project-plan.md` - phase-by-phase build and learning roadmap.
 - `docs/phase-log.md` - phase-by-phase change log and verification notes.
+- `docs/demo-checklist.md` - demo rehearsal script covering recognition, logging, and spoof rejection.
 
 ## Teaching Workspace
 
-- `lessons/0001-python-project-anatomy.html` - Phase 1 lesson on project packaging structure.
-- `lessons/0002-boundary-models.html` - Phase 2 lesson on Pydantic boundary validation.
-- `lessons/0003-sqlite-storage-boundaries.html` - Phase 3 lesson on storage boundaries and secure schema design.
-- `reference/python-project-setup.html` - quick reference for setup commands and file roles.
-- `reference/pydantic-boundary-models.html` - quick reference for core contract models and validation rules.
-- `reference/sqlite-storage.html` - quick reference for storage tables and repository methods.
-- `lessons/` - short HTML lessons created before implementation phases.
+- `lessons/` - one short HTML lesson per phase (0001-0010).
 - `reference/` - reusable quick-reference teaching documents.
-- `learning-records/` - evidence-backed learning records created when understanding is demonstrated.
+- `learning-records/` - evidence-backed learning records.
 
-## Local Runtime Folders
+## Local Runtime Folders (never committed)
 
-- `data/.gitkeep` - keeps the local data folder present while ignoring generated database/runtime data.
-- `logs/` - ignored runtime logs created during local runs.
-- `recordings/` - ignored local demo recordings.
+- `data/` - SQLite database and runtime data.
+- `models/` - downloaded ONNX models (`scripts/download_models.py`).
+- `logs/` - runtime logs.
+- `recordings/` - local demo recordings.

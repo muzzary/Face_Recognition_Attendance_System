@@ -269,6 +269,29 @@ Date: 2026-07-07
 - Clean: enrollment refreshes the match index immediately — a new employee is matchable without restarting attendance mode.
 - Fixed during review: repeated `main()` calls no longer leak logging file handles (`force=True`).
 
+## Phase 11 - Hardening and Documentation
+
+Date: 2026-07-07
+
+### Changed
+
+- Rewrote `README.md` for production use: architecture diagram, setup, usage, configuration table, matching-threshold rationale, honest liveness limitations (video-replay gap), concurrency/backlog strategy, 1000-employee scalability design, and security/privacy notes.
+- Updated `DIRECTORY_MAP.md` to cover every module and test added in phases 4-10.
+- Finalized `docs/dependency-strategy.md`: core deps are pydantic + numpy + opencv-python; recognition-library extras removed with rationale.
+- Marked phases 4-11 complete in `docs/project-plan.md`.
+- CI now tests on Python 3.10 and 3.13.
+- Added `docs/demo-checklist.md` (Phase 12 artifact, written here): rehearsal script for recognition, logging, multi-face, unknown rejection, spoof tests, resilience, and scale talking points.
+
+### Verified
+
+- `python -m unittest discover -s tests` (102 tests, all green)
+- Console script `face-attendance --help` works after editable install.
+
+### Review
+
+- Independent code-review agent pass over phases 4-11 (findings addressed in Phase 12 entry below, if any).
+- Network note: GitHub was unreachable during this session (confirmed by user); model download and `git push` remain pending. Pinned SHA256 hashes in `model_files.py` must be confirmed on first successful download — the script fails loudly with the actual hash if they differ.
+
 ## Phase 3 - Storage Foundation
 
 Date: 2026-07-06

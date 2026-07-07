@@ -1,0 +1,17 @@
+<!DOCTYPE html>
+<html lang="en">
+<head><meta charset="utf-8"><title>Lesson 11: Hardening and Review Readiness</title></head>
+<body>
+<h1>Lesson 11: Hardening and Review Readiness</h1>
+<p><strong>Objective:</strong> learn what separates "it works on my machine" from "an engineer can trust, run, and extend this".</p>
+<h2>Key ideas</h2>
+<ul>
+  <li>Documentation is a contract: the README states not just how to run the system but <em>where it breaks</em> — threshold trade-offs, the video-replay liveness gap, and the exact backpressure policy. Reviewers trust documented limits more than claimed perfection.</li>
+  <li>Every "magic number" needs a home and a rationale: 0.363 is OpenCV's published SFace operating point, liveness floors are IOD-normalized, and all of them are env-tunable without code edits.</li>
+  <li>Operational readiness: structured logs with context, session statistics, explicit exit codes, and a demo checklist that proves each rubric item reproducibly.</li>
+  <li>CI across the supported Python range (3.10 and 3.13) catches version drift the dev machine hides.</li>
+</ul>
+<h2>Retrieval question</h2>
+<p>Why document the video-replay weakness instead of staying quiet about it? <em>(Answer: an evaluator or attacker will find it in minutes; documenting it shows you understand the threat model and turns a hidden flaw into an engineering decision with a stated mitigation path.)</em></p>
+</body>
+</html>

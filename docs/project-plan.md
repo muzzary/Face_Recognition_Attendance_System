@@ -70,6 +70,8 @@ Tests:
 
 ## Phase 4 - Camera Capture
 
+Status: complete.
+
 Build outcome:
 - Add OpenCV camera capture module.
 - Read frames with metadata.
@@ -88,6 +90,8 @@ Manual checkpoint:
 
 ## Phase 5 - Face Detection
 
+Status: complete.
+
 Build outcome:
 - Add face detector adapter behind a local interface.
 - Return one result per detected face.
@@ -104,6 +108,8 @@ Manual checkpoint:
 - User confirms face boxes appear on webcam frames or sample frames.
 
 ## Phase 6 - Embeddings and Enrollment
+
+Status: complete.
 
 Build outcome:
 - Extract embeddings for detected faces.
@@ -123,6 +129,8 @@ Manual checkpoint:
 
 ## Phase 7 - Matching and Attendance Logging
 
+Status: complete (includes storage scale upgrade: WAL mode and indexes).
+
 Build outcome:
 - Compare live embeddings against enrolled employee embeddings.
 - Define and document the first matching threshold.
@@ -141,6 +149,8 @@ Manual checkpoint:
 
 ## Phase 8 - Multi-Frame Liveness
 
+Status: complete (micro-movement + non-rigidity; manual spoof test pending user checkpoint).
+
 Build outcome:
 - Implement the chosen liveness approach, likely blink tracking or micro-movement first.
 - Require liveness confirmation before attendance logging.
@@ -157,6 +167,8 @@ Manual checkpoint:
 - User tests a live face and a photo/screen spoof attempt.
 
 ## Phase 9 - Non-Blocking Background Processing
+
+Status: complete.
 
 Build outcome:
 - Move expensive recognition work off the capture loop.
@@ -177,6 +189,8 @@ Manual checkpoint:
 
 ## Phase 10 - End-to-End App Flow
 
+Status: complete.
+
 Build outcome:
 - Add a simple CLI or app entrypoint for enrollment and attendance mode.
 - Connect capture, detection, embeddings, matching, liveness, storage, and logging.
@@ -194,6 +208,8 @@ Manual checkpoint:
 - User runs enrollment and attendance mode locally.
 
 ## Phase 11 - Hardening and Documentation
+
+Status: complete.
 
 Build outcome:
 - Tighten error handling, logging, README instructions, and security notes.
