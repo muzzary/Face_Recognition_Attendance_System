@@ -24,8 +24,12 @@ BASE_POINTS = np.array(
 )
 
 
-def face_from_points(points: np.ndarray, frame_id: int) -> DetectedFace:
-    frame = make_frame(frame_id=frame_id, width=320, height=240)
+def face_from_points(
+    points: np.ndarray, frame_id: int, captured_at=None
+) -> DetectedFace:
+    frame = make_frame(
+        frame_id=frame_id, width=320, height=240, captured_at=captured_at
+    )
     labels = ("right_eye", "left_eye", "nose_tip", "mouth_right", "mouth_left")
     landmarks = FaceLandmarks(
         **{
@@ -117,17 +121,46 @@ class LivenessTests(unittest.TestCase):
         self.assertIn("rigid", result.reason)
 
     def test_track_gap_resets_evidence(self) -> None:
+        from datetime import datetime, timedelta, timezone
+
+        start = datetime(2026, 7, 7, 9, 0, tzinfo=timezone.utc)
         frames = live_sequence(8)
         for offset, points in enumerate(frames):
-            self.checker.observe("EMP-001", face_from_points(points, offset))
+            self.checker.observe(
+                "EMP-001",
+                face_from_points(
+                    points, offset, captured_at=start + timedelta(milliseconds=33 * offset)
+                ),
+            )
 
-        # Person disappears for 100 frames, then returns.
+        # Person disappears for 10 seconds, then returns.
         result = self.checker.observe(
-            "EMP-001", face_from_points(BASE_POINTS, 108)
+            "EMP-001",
+            face_from_points(BASE_POINTS, 108, captured_at=start + timedelta(seconds=10)),
         )
 
         self.assertEqual(result.status, LivenessStatus.UNKNOWN)
         self.assertEqual(result.frame_count, 1)
+
+    def test_dropped_frames_do_not_reset_evidence(self) -> None:
+        # Under load the pipeline processes e.g. every 16th camera frame;
+        # wall-clock gaps stay small, so evidence must keep accumulating.
+        from datetime import datetime, timedelta, timezone
+
+        start = datetime(2026, 7, 7, 9, 0, tzinfo=timezone.utc)
+        result = None
+        for index, points in enumerate(live_sequence(12)):
+            result = self.checker.observe(
+                "EMP-001",
+                face_from_points(
+                    points,
+                    frame_id=index * 16,  # large frame-id jumps
+                    captured_at=start + timedelta(milliseconds=500 * index),
+                ),
+            )
+
+        assert result is not None
+        self.assertEqual(result.status, LivenessStatus.PASSED)
 
     def test_tracks_are_independent(self) -> None:
         run_sequence(self.checker, live_sequence(12), track_id="EMP-001")

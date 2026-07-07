@@ -142,6 +142,76 @@ class StorageUpgradeTests(unittest.TestCase):
             self.assertEqual(storage.count_employees(), 1)
             self.assertEqual(storage.list_active_embeddings(), [])
 
+    def test_atomic_enrollment_round_trip(self) -> None:
+        from fakes import make_embedding
+
+        with TemporaryDirectory() as temp_dir:
+            database_path = Path(temp_dir) / "attendance.db"
+            initialize_database(database_path)
+            storage = AttendanceStorage(database_path)
+            employee = EmployeeRecord(
+                employee_id="EMP-001", full_name="Ada", created_at=NOW
+            )
+            samples = [make_embedding([1.0, 0.0]), make_embedding([0.9, 0.1])]
+
+            storage.add_employee_with_embeddings(employee, samples)
+
+            self.assertEqual(storage.get_employee("EMP-001"), employee)
+            self.assertEqual(
+                storage.list_embeddings_for_employee("EMP-001"), samples
+            )
+
+    def test_atomic_enrollment_leaves_nothing_on_failure(self) -> None:
+        from face_attendance.storage import StorageError
+        from fakes import make_embedding
+
+        with TemporaryDirectory() as temp_dir:
+            database_path = Path(temp_dir) / "attendance.db"
+            initialize_database(database_path)
+            storage = AttendanceStorage(database_path)
+            employee = EmployeeRecord(
+                employee_id="EMP-001", full_name="Ada", created_at=NOW
+            )
+            storage.add_employee_with_embeddings(employee, [make_embedding()])
+
+            # Duplicate id fails; the whole transaction must roll back.
+            with self.assertRaises(StorageError):
+                storage.add_employee_with_embeddings(
+                    employee, [make_embedding(), make_embedding()]
+                )
+            self.assertEqual(
+                len(storage.list_embeddings_for_employee("EMP-001")), 1
+            )
+
+            with self.assertRaises(StorageError):
+                storage.add_employee_with_embeddings(
+                    EmployeeRecord(
+                        employee_id="EMP-002", full_name="Bob", created_at=NOW
+                    ),
+                    [],
+                )
+            self.assertIsNone(storage.get_employee("EMP-002"))
+
+    def test_index_refresh_drops_deactivated_employee(self) -> None:
+        from face_attendance.matching import EmployeeEmbeddingIndex
+        from fakes import make_embedding
+
+        with TemporaryDirectory() as temp_dir:
+            database_path = Path(temp_dir) / "attendance.db"
+            initialize_database(database_path)
+            storage = AttendanceStorage(database_path)
+            storage.add_employee_with_embeddings(
+                EmployeeRecord(employee_id="EMP-001", full_name="Ada", created_at=NOW),
+                [make_embedding([1.0, 0.0])],
+            )
+            index = EmployeeEmbeddingIndex.from_storage(storage)
+            self.assertIsNotNone(index.best_match(make_embedding([1.0, 0.0])))
+
+            storage.set_employee_active("EMP-001", False)
+            index.refresh_from_storage(storage)
+
+            self.assertIsNone(index.best_match(make_embedding([1.0, 0.0])))
+
     def test_deactivating_missing_employee_raises(self) -> None:
         from face_attendance.storage import StorageError
 

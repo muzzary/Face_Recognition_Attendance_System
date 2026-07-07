@@ -67,11 +67,13 @@ class AttendanceService:
         if last_event is not None:
             elapsed = occurred_at - last_event.occurred_at
             if elapsed < self._cooldown:
-                remaining = int((self._cooldown - elapsed).total_seconds()) + 1
+                # Stable wording (no countdown): callers deduplicate repeated
+                # reasons, and a changing string would print every second.
                 return AttendanceDecision(
                     False,
                     None,
-                    f"cooldown active for {employee_id}; retry in ~{remaining}s",
+                    f"cooldown active for {employee_id} after "
+                    f"{last_event.event_type.value}",
                 )
 
         event_type = AttendanceEventType.CLOCK_IN

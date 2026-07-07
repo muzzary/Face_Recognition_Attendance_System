@@ -64,7 +64,9 @@ All tunables are environment variables validated at startup (defaults in parenth
 | `FA_LIVENESS_WINDOW_SIZE` | frames of liveness evidence (`12`) |
 | `FA_LIVENESS_MIN_MOTION` | motion floor, rel. to eye distance (`0.004`) |
 | `FA_LIVENESS_MIN_DEFORMATION` | non-rigidity floor (`0.006`) |
+| `FA_LIVENESS_MAX_GAP_SECONDS` | track lost after this silence (`2.0`) |
 | `FA_COOLDOWN_SECONDS` | per-employee re-log cooldown (`60`) |
+| `FA_INDEX_REFRESH_SECONDS` | live gallery reload interval (`30`) |
 | `FA_LOG_DIR`, `FA_LOG_LEVEL` | logging (`logs`, `INFO`) |
 
 An invalid or unknown `FA_*` variable stops startup with the variable named.
@@ -78,6 +80,8 @@ Matching uses cosine similarity between SFace embeddings. The default threshold 
 - Every event stores its confidence score and match distance, so the threshold can be tuned later from real data (`face-attendance report` shows both).
 
 With 1000 employees the *gallery* grows but the decision stays a single threshold on the best score; monitor near-threshold events in reports to detect drift (lighting changes, camera swaps).
+
+**Clock-in/out semantics:** events toggle per employee (in → out → in) with a cooldown (`FA_COOLDOWN_SECONDS`, default 60 s) suppressing duplicates. An employee who lingers in front of the camera *longer than the cooldown* will toggle again (spurious clock-out); site the camera so people pass rather than loiter, or raise the cooldown for your deployment.
 
 ## Liveness: What It Catches and What It Doesn't
 
@@ -103,13 +107,14 @@ Attendance is **never** logged until liveness passes; an incomplete window is UN
 
 - **Matching:** all active embeddings live in one L2-normalized numpy matrix; a match is a single matrix-vector product. 1000 employees × 5 samples × 128 dims ≈ 2.5 MB and multiplies in well under a millisecond (regression-tested).
 - **Storage:** SQLite in WAL mode with a busy timeout; hot paths are indexed (`attendance_events(employee_id, occurred_at)`, `face_embeddings(employee_id)`). Reports use SQL `LIMIT`, not full scans. A year of 1000 employees clocking twice a day is ~500k rows — comfortably inside SQLite's envelope on one terminal.
-- **Index refresh:** enrollment refreshes the in-memory gallery immediately; multi-terminal deployments would refresh on a timer or DB trigger.
+- **Index refresh:** enrollment refreshes the in-memory gallery immediately, and a running attendance session re-reads it every `FA_INDEX_REFRESH_SECONDS` (default 30 s) — so deactivating an employee takes effect on live terminals within that window, no restart needed.
 - **Growth path:** the storage repository, detector, and embedder sit behind interfaces — swapping SQLite→Postgres or SFace→a stronger embedding model touches one adapter each, not the pipeline. A future cloud API can reuse `PipelineComponents` behind FastAPI without changing any module.
 
 ## Security & Privacy
 
 - Biometric data is stored **only as numeric embeddings**; raw frames live in memory and are discarded. The schema is tested to contain no image/photo/raw/bytes columns.
-- Original faces cannot be reconstructed from SFace vectors.
+- Original faces cannot be reconstructed from SFace vectors. Note that embeddings are still biometric templates and sit unencrypted in the SQLite file — acceptable for a single trusted terminal; use OS-level disk encryption (e.g. BitLocker) on the device, and add at-rest encryption before any multi-tenant/cloud deployment.
+- Enrollment is a single database transaction: a crash mid-enrollment can never leave a partial gallery.
 - No secrets are needed today; if any are introduced, they go in `.env` (already gitignored).
 - Model downloads are SHA256-pinned; a tampered file never loads.
 - `data/`, `logs/`, `models/`, `recordings/` are local runtime folders and never committed.

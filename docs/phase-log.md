@@ -292,6 +292,40 @@ Date: 2026-07-07
 - Independent code-review agent pass over phases 4-11 (findings addressed in Phase 12 entry below, if any).
 - Network note: GitHub was unreachable during this session (confirmed by user); model download and `git push` remain pending. Pinned SHA256 hashes in `model_files.py` must be confirmed on first successful download — the script fails loudly with the actual hash if they differ.
 
+## Phase 12 - Review Fixes and Submission Polish
+
+Date: 2026-07-07
+
+### Changed
+
+Independent code-review pass over phases 4-11 (verdict: no critical issues; four important findings, all fixed):
+
+- **Thread-safety:** `worker_errors` in the attend loop is now lock-protected alongside `outputs` (a worker append during main-loop iteration could raise `RuntimeError: deque mutated during iteration` exactly when errors were being reported).
+- **Atomic enrollment:** new `AttendanceStorage.add_employee_with_embeddings` inserts the employee and all embeddings in one transaction; a crash mid-enrollment can no longer leave a partial gallery behind a taken employee ID.
+- **Live deactivation:** attendance sessions now refresh the in-memory gallery every `FA_INDEX_REFRESH_SECONDS` (default 30 s), so `employees deactivate` takes effect on running terminals; index refresh also builds the new snapshot before swapping (a failed rebuild keeps the last good gallery).
+- **Liveness under load:** track-loss detection now uses wall-clock gaps (`FA_LIVENESS_MAX_GAP_SECONDS`, default 2 s) instead of frame ids — on slow hardware, dropped frames could previously reset the evidence window forever, locking everyone out.
+
+Suggestions also applied: worker shutdown failure no longer skips camera/window cleanup; results landing during shutdown are drained and reported; cooldown messages are dedupe-stable; YuNet edge clamping shrinks boxes instead of shifting them; worker error-policy docstring corrected; `report --limit` rejects non-positive values; CLI pre-checks model files before opening the camera; README documents the plaintext-embedding tradeoff and the linger-toggle behavior.
+
+Also: fixed the stale Phase 1 structure test that asserted removed dependency extras; version bumped to 1.0.0.
+
+### Verified
+
+- `python -m unittest discover -s tests` (106 tests, all green; also green with DeprecationWarnings as errors)
+- Measured match latency: 0.95 ms at 1000 employees x 5 samples (5000x128 gallery).
+- WAL mode, schema v2, and both hot-path indexes confirmed on a fresh database.
+- CLI smoke: init-db, employees list, report, attend fail-fast without models, attend fail-fast message before camera open.
+
+### Review
+
+- Reviewed, clean after fixes. Remaining documented limitations: video-replay spoofs (README), unencrypted embeddings at rest (README), unverified model hashes pending network (see Phase 11 note).
+
+### Pending (network was down this session)
+
+- `python scripts/download_models.py` + confirm pinned SHA256 hashes.
+- `git push` all phase commits.
+- User manual checkpoints: webcam capture, enrollment, live recognition, spoof tests per `docs/demo-checklist.md`.
+
 ## Phase 3 - Storage Foundation
 
 Date: 2026-07-06

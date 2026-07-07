@@ -90,12 +90,11 @@ class RecognitionWorker(threading.Thread):
     """Consumes frames from the slot and emits RecognitionOutputs.
 
     Error policy:
-    - Known per-frame errors (bad frame, model hiccup, storage write) are
+    - Any per-frame failure (bad frame, model hiccup, storage write) is
       reported via on_error and the worker keeps running.
-    - max_consecutive_errors identical failures in a row means something is
+    - max_consecutive_errors failures in a row means something is
       structurally broken; the worker reports a PipelineError and exits so
       the operator sees a stopped pipeline instead of a silent error loop.
-    - Unknown exceptions are reported and stop the worker immediately.
     """
 
     def __init__(

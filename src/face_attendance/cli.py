@@ -49,6 +49,13 @@ _EXPECTED_ERRORS = (
 )
 
 
+def _positive_int(value: str) -> int:
+    number = int(value)
+    if number < 1:
+        raise argparse.ArgumentTypeError("must be a positive integer")
+    return number
+
+
 def build_parser() -> argparse.ArgumentParser:
     parser = argparse.ArgumentParser(
         prog="face-attendance",
@@ -75,7 +82,7 @@ def build_parser() -> argparse.ArgumentParser:
 
     report = subparsers.add_parser("report", help="show recent attendance events")
     report.add_argument("--employee-id", default=None)
-    report.add_argument("--limit", type=int, default=50)
+    report.add_argument("--limit", type=_positive_int, default=50)
 
     employees = subparsers.add_parser("employees", help="manage the roster")
     employees_sub = employees.add_subparsers(dest="employees_command", required=True)
@@ -107,6 +114,22 @@ def _setup_logging(settings: AppSettings) -> None:
         handlers=handlers,
         force=True,
     )
+
+
+def _require_models(settings: AppSettings) -> None:
+    """Fail fast with a clear message before any camera work starts."""
+
+    missing = [
+        str(path)
+        for path in (settings.yunet_model_path, settings.sface_model_path)
+        if not path.is_file()
+    ]
+    if missing:
+        raise ModelDownloadError(
+            "missing model files: "
+            + ", ".join(missing)
+            + "; run 'face-attendance download-models' first"
+        )
 
 
 def _make_camera(settings: AppSettings, camera_index: int | None) -> OpenCvCamera:
@@ -161,6 +184,7 @@ def _dispatch(args: argparse.Namespace, settings: AppSettings) -> int:
         return 0
 
     if args.command == "enroll":
+        _require_models(settings)
         components = build_components(settings)
         camera = _make_camera(settings, args.camera_index)
         try:
@@ -175,6 +199,7 @@ def _dispatch(args: argparse.Namespace, settings: AppSettings) -> int:
         return 0
 
     if args.command == "attend":
+        _require_models(settings)
         components = build_components(settings)
         camera = _make_camera(settings, args.camera_index)
         stats = run_attendance(

@@ -48,10 +48,13 @@ class AppSettings(BaseModel):
     liveness_window_size: int = Field(default=12, ge=3)
     liveness_min_motion: float = Field(default=0.004, gt=0.0)
     liveness_min_deformation: float = Field(default=0.006, gt=0.0)
-    liveness_max_frame_gap: int = Field(default=15, ge=1)
+    liveness_max_gap_seconds: float = Field(default=2.0, gt=0.0)
 
     # Attendance
     cooldown_seconds: int = Field(default=60, ge=0)
+    # How often a running attend session re-reads the gallery, so enrollments
+    # and deactivations made elsewhere take effect without a restart.
+    index_refresh_seconds: int = Field(default=30, ge=0)
 
     # Logging
     log_level: str = "INFO"

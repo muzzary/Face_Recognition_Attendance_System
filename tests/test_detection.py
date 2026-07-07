@@ -38,7 +38,7 @@ class YuNetRowConversionTests(unittest.TestCase):
         self.assertAlmostEqual(face.landmarks.right_eye.x, 15.0)
         self.assertAlmostEqual(face.landmarks.mouth_left.y, 37.0)
 
-    def test_negative_coordinates_are_clamped(self) -> None:
+    def test_negative_coordinates_clamp_by_shrinking(self) -> None:
         frame = make_frame(width=64, height=48)
         row = make_yunet_row(x=-4.0, y=-2.0, width=30.0, height=30.0)
 
@@ -47,6 +47,9 @@ class YuNetRowConversionTests(unittest.TestCase):
         assert face is not None
         self.assertEqual(face.bounding_box.x, 0)
         self.assertEqual(face.bounding_box.y, 0)
+        # Off-frame pixels are cut, not shifted onto the wrong region.
+        self.assertEqual(face.bounding_box.width, 26)
+        self.assertEqual(face.bounding_box.height, 28)
 
     def test_box_larger_than_frame_is_clamped(self) -> None:
         frame = make_frame(width=64, height=48)

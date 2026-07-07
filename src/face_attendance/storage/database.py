@@ -105,6 +105,47 @@ class AttendanceStorage:
             ).fetchall()
         return [_employee_from_row(row) for row in rows]
 
+    def add_employee_with_embeddings(
+        self, employee: EmployeeRecord, embeddings: list[FaceEmbedding]
+    ) -> None:
+        """Insert an employee and their gallery in one transaction.
+
+        Either everything lands or nothing does — a crash mid-enrollment can
+        never leave an employee row with a partial (or empty) gallery.
+        """
+
+        if not embeddings:
+            raise StorageError("cannot enroll an employee without embeddings")
+        with self._connect() as connection:
+            connection.execute(
+                """
+                INSERT INTO employees (employee_id, full_name, is_active, created_at)
+                VALUES (?, ?, ?, ?)
+                """,
+                (
+                    employee.employee_id,
+                    employee.full_name,
+                    int(employee.is_active),
+                    employee.created_at.isoformat(),
+                ),
+            )
+            connection.executemany(
+                """
+                INSERT INTO face_embeddings
+                    (employee_id, model_name, dimensions, vector_json)
+                VALUES (?, ?, ?, ?)
+                """,
+                [
+                    (
+                        employee.employee_id,
+                        embedding.model_name,
+                        embedding.dimensions,
+                        _embedding_vector_to_json(embedding.vector),
+                    )
+                    for embedding in embeddings
+                ],
+            )
+
     def add_embedding(self, employee_id: str, embedding: FaceEmbedding) -> int:
         with self._connect() as connection:
             cursor = connection.execute(

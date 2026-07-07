@@ -4,7 +4,7 @@ build-backend = "setuptools.build_meta"
 
 [project]
 name = "face-recognition-attendance-system"
-version = "0.1.0"
+version = "1.0.0"
 description = "Secure face-recognition attendance system for the Khizex Python engineering assignment."
 readme = "README.md"
 requires-python = ">=3.10"

@@ -86,9 +86,8 @@ class EnrollmentService:
             full_name=full_name,
             created_at=datetime.now(timezone.utc),
         )
-        self._storage.add_employee(employee)
-        for sample in samples:
-            self._storage.add_embedding(employee_id, sample)
+        # Single transaction: a crash mid-enrollment leaves no partial gallery.
+        self._storage.add_employee_with_embeddings(employee, samples)
         return employee
 
     def _require_quality(self, face: DetectedFace) -> None:

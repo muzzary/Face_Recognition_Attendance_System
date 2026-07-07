@@ -63,13 +63,14 @@ def make_frame(
     height: int = 48,
     camera_id: str = "camera-test",
     image: np.ndarray | None = None,
+    captured_at: datetime | None = None,
 ) -> Frame:
     if image is None:
         image = make_image(width=width, height=height)
     metadata = FrameMetadata(
         frame_id=frame_id,
         camera_id=camera_id,
-        captured_at=datetime.now(timezone.utc),
+        captured_at=captured_at if captured_at is not None else datetime.now(timezone.utc),
         width=image.shape[1],
         height=image.shape[0],
     )

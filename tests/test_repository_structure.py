@@ -93,14 +93,17 @@ class RepositoryStructureTests(unittest.TestCase):
         strategy = (ROOT / "docs/dependency-strategy.md").read_text(encoding="utf-8")
         pyproject = (ROOT / "pyproject.toml").read_text(encoding="utf-8")
 
+        # Final decision: pydantic + numpy + opencv-python are core; the
+        # embedding model (SFace) ships inside OpenCV, so no extras remain.
         required_terms = [
             "OpenCV",
             "Pydantic",
             "face-recognition or embedding library",
             "validation",
-            "vision",
-            "recognition-face-recognition",
-            "recognition-insightface",
+            "YuNet",
+            "SFace",
+            "opencv-python",
+            "numpy",
         ]
 
         combined = f"{strategy}\n{pyproject}"

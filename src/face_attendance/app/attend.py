@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import logging
 import threading
+import time
 from collections import deque
 from dataclasses import dataclass
 from typing import Callable
@@ -50,16 +51,19 @@ def run_attendance(
 
     stats = AttendStats()
     slot = LatestFrameSlot()
+    # Both deques cross the worker/main thread boundary; every access is
+    # lock-protected (an unsynchronized iteration during append raises).
+    shared_lock = threading.Lock()
     outputs: deque[RecognitionOutput] = deque(maxlen=64)
-    outputs_lock = threading.Lock()
     worker_errors: deque[Exception] = deque(maxlen=16)
 
     def on_result(output: RecognitionOutput) -> None:
-        with outputs_lock:
+        with shared_lock:
             outputs.append(output)
 
     def on_error(error: Exception) -> None:
-        worker_errors.append(error)
+        with shared_lock:
+            worker_errors.append(error)
         logger.error("pipeline error: %s", error)
 
     if components.index.size == 0:
@@ -82,6 +86,18 @@ def run_attendance(
 
     last_message_per_employee: dict[str, str] = {}
     latest_output: RecognitionOutput | None = None
+    refresh_interval = components.settings.index_refresh_seconds
+    last_refresh = time.monotonic()
+
+    def drain_outputs() -> None:
+        nonlocal latest_output
+        with shared_lock:
+            drained = list(outputs)
+            outputs.clear()
+        if drained:
+            latest_output = drained[-1]
+        for output in drained:
+            _report_output(output, stats, last_message_per_employee, on_message)
 
     try:
         while max_frames is None or stats.frames_read < max_frames:
@@ -95,15 +111,10 @@ def run_attendance(
             stats.frames_read += 1
             slot.put(frame)
 
-            with outputs_lock:
-                drained = list(outputs)
-                outputs.clear()
-            if drained:
-                latest_output = drained[-1]
-            for output in drained:
-                _report_output(output, stats, last_message_per_employee, on_message)
+            drain_outputs()
 
-            fatal = [e for e in worker_errors if isinstance(e, PipelineError)]
+            with shared_lock:
+                fatal = any(isinstance(e, PipelineError) for e in worker_errors)
             if fatal or not worker.is_alive():
                 stats.pipeline_failed = True
                 on_message(
@@ -111,10 +122,29 @@ def run_attendance(
                 )
                 break
 
+            # Pick up enrollments/deactivations made by other processes so a
+            # deactivated employee stops matching without a terminal restart.
+            if refresh_interval >= 0 and (
+                time.monotonic() - last_refresh >= refresh_interval
+            ):
+                try:
+                    components.index.refresh_from_storage(components.storage)
+                except Exception as exc:  # noqa: BLE001 - keep the session alive
+                    logger.error("gallery refresh failed: %s", exc)
+                last_refresh = time.monotonic()
+
             if display and not _show_frame(frame, latest_output, components):
                 break
     finally:
-        worker.stop()
+        try:
+            worker.stop()
+        except PipelineError as exc:
+            # A wedged worker must not prevent camera/window cleanup.
+            logger.error("worker shutdown failed: %s", exc)
+            stats.pipeline_failed = True
+        # Report results that landed between the last read and shutdown, so a
+        # clock-in during the final instant is still shown to the operator.
+        drain_outputs()
         frame_source.close()
         if display:
             _close_windows()

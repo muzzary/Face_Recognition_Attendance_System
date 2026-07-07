@@ -29,50 +29,30 @@ class EmployeeEmbeddingIndex:
         self._employee_ids: list[str] = []
         self._matrix: np.ndarray | None = None
         self._dimensions: int | None = None
-        self._load(entries)
+        self._swap(_build_snapshot(entries))
 
     @classmethod
     def from_storage(cls, storage: AttendanceStorage) -> EmployeeEmbeddingIndex:
         return cls(storage.list_active_embeddings())
 
     def refresh_from_storage(self, storage: AttendanceStorage) -> None:
-        """Rebuild the snapshot after enrollments or deactivations."""
+        """Rebuild the snapshot after enrollments or deactivations.
 
-        entries = storage.list_active_embeddings()
+        The new snapshot is built fully before the swap, so a failed rebuild
+        (bad data in storage) raises and leaves the last good gallery serving.
+        """
+
+        snapshot = _build_snapshot(storage.list_active_embeddings())
+        self._swap(snapshot)
+
+    def _swap(
+        self, snapshot: tuple[list[str], np.ndarray | None, int | None]
+    ) -> None:
+        employee_ids, matrix, dimensions = snapshot
         with self._lock:
-            self._employee_ids = []
-            self._matrix = None
-            self._dimensions = None
-            self._load_locked(entries)
-
-    def _load(self, entries: list[tuple[str, FaceEmbedding]]) -> None:
-        with self._lock:
-            self._load_locked(entries)
-
-    def _load_locked(self, entries: list[tuple[str, FaceEmbedding]]) -> None:
-        if not entries:
-            return
-
-        dimensions = entries[0][1].dimensions
-        vectors: list[list[float]] = []
-        employee_ids: list[str] = []
-        for employee_id, embedding in entries:
-            if embedding.dimensions != dimensions:
-                raise MatchingError(
-                    "embedding dimensions are inconsistent in storage: "
-                    f"{embedding.dimensions} vs {dimensions} "
-                    f"(employee {employee_id}); re-enroll with one model"
-                )
-            employee_ids.append(employee_id)
-            vectors.append(embedding.vector)
-
-        matrix = np.asarray(vectors, dtype=np.float64)
-        try:
-            self._matrix = normalize_rows(matrix)
-        except SimilarityError as exc:
-            raise MatchingError("storage contains a zero-magnitude embedding") from exc
-        self._employee_ids = employee_ids
-        self._dimensions = dimensions
+            self._employee_ids = employee_ids
+            self._matrix = matrix
+            self._dimensions = dimensions
 
     @property
     def size(self) -> int:
@@ -108,3 +88,31 @@ class EmployeeEmbeddingIndex:
         similarities = matrix @ (vector / norm)
         best_row = int(np.argmax(similarities))
         return employee_ids[best_row], float(similarities[best_row])
+
+
+def _build_snapshot(
+    entries: list[tuple[str, FaceEmbedding]],
+) -> tuple[list[str], np.ndarray | None, int | None]:
+    """Validate entries and build the normalized matrix, without touching state."""
+
+    if not entries:
+        return [], None, None
+
+    dimensions = entries[0][1].dimensions
+    vectors: list[list[float]] = []
+    employee_ids: list[str] = []
+    for employee_id, embedding in entries:
+        if embedding.dimensions != dimensions:
+            raise MatchingError(
+                "embedding dimensions are inconsistent in storage: "
+                f"{embedding.dimensions} vs {dimensions} "
+                f"(employee {employee_id}); re-enroll with one model"
+            )
+        employee_ids.append(employee_id)
+        vectors.append(embedding.vector)
+
+    try:
+        matrix = normalize_rows(np.asarray(vectors, dtype=np.float64))
+    except SimilarityError as exc:
+        raise MatchingError("storage contains a zero-magnitude embedding") from exc
+    return employee_ids, matrix, dimensions

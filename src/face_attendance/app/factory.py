@@ -52,7 +52,7 @@ def build_components(settings: AppSettings) -> PipelineComponents:
         window_size=settings.liveness_window_size,
         min_motion=settings.liveness_min_motion,
         min_deformation=settings.liveness_min_deformation,
-        max_frame_gap=settings.liveness_max_frame_gap,
+        max_gap_seconds=settings.liveness_max_gap_seconds,
     )
     attendance = AttendanceService(storage, cooldown_seconds=settings.cooldown_seconds)
     enrollment = EnrollmentService(

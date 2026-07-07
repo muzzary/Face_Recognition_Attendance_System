@@ -19,6 +19,7 @@ from __future__ import annotations
 
 from collections import deque
 from dataclasses import dataclass
+from datetime import datetime
 
 import numpy as np
 
@@ -33,7 +34,7 @@ class LivenessError(RuntimeError):
 
 @dataclass(frozen=True)
 class _Observation:
-    frame_id: int
+    captured_at: datetime
     points: np.ndarray  # shape (5, 2), pixel coordinates
 
 
@@ -51,16 +52,16 @@ class MicroMovementLivenessChecker:
         window_size: int = 12,
         min_motion: float = 0.004,
         min_deformation: float = 0.006,
-        max_frame_gap: int = 15,
+        max_gap_seconds: float = 2.0,
     ) -> None:
         if window_size < 3:
             raise ValueError("window_size must be >= 3 for movement analysis")
-        if max_frame_gap < 1:
-            raise ValueError("max_frame_gap must be >= 1")
+        if max_gap_seconds <= 0.0:
+            raise ValueError("max_gap_seconds must be > 0")
         self._window_size = window_size
         self._min_motion = min_motion
         self._min_deformation = min_deformation
-        self._max_frame_gap = max_frame_gap
+        self._max_gap_seconds = max_gap_seconds
         self._windows: dict[str, deque[_Observation]] = {}
 
     @property
@@ -82,16 +83,21 @@ class MicroMovementLivenessChecker:
             [(point.x, point.y) for point in face.landmarks.as_points()],
             dtype=np.float64,
         )
-        observation = _Observation(frame_id=face.frame.frame_id, points=points)
+        observation = _Observation(captured_at=face.frame.captured_at, points=points)
 
         window = self._windows.get(track_id)
         if window is None:
             window = deque(maxlen=self._window_size)
             self._windows[track_id] = window
-        elif window and observation.frame_id - window[-1].frame_id > self._max_frame_gap:
-            # Track was lost (person left the frame); stale evidence must not
-            # carry over into a new appearance.
-            window.clear()
+        elif window:
+            # Wall-clock gap, not frame ids: the pipeline drops stale frames
+            # under load, so consecutive observations can be many frame ids
+            # apart even though the person never left the camera.
+            gap = (observation.captured_at - window[-1].captured_at).total_seconds()
+            if gap > self._max_gap_seconds:
+                # Track was lost (person left the frame); stale evidence must
+                # not carry over into a new appearance.
+                window.clear()
         window.append(observation)
 
         return self._evaluate(window)

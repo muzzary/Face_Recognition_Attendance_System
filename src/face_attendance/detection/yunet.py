@@ -99,10 +99,12 @@ def _row_to_detected_face(
     if row.shape[0] < 15:
         raise DetectionError(f"unexpected YuNet output row of length {row.shape[0]}")
 
-    x = max(0, int(round(row[0])))
-    y = max(0, int(round(row[1])))
-    box_width = min(int(round(row[2])), frame_width - x)
-    box_height = min(int(round(row[3])), frame_height - y)
+    # Clamp by shrinking, not shifting: a box hanging off the left/top edge
+    # loses the off-frame part instead of sliding onto the wrong pixels.
+    raw_x, raw_y = int(round(row[0])), int(round(row[1]))
+    x, y = max(0, raw_x), max(0, raw_y)
+    box_width = min(int(round(row[2])) - (x - raw_x), frame_width - x)
+    box_height = min(int(round(row[3])) - (y - raw_y), frame_height - y)
     if box_width <= 0 or box_height <= 0:
         return None
 
