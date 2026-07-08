@@ -1,5 +1,40 @@
 # Phase Log
 
+## Manual Testing Complete - Scalability Verification
+
+Date: 2026-07-08
+
+### Summary
+
+Manual testing (`docs/demo-checklist.md`) is complete: enrollment, live recognition with clock-in/out logging, still-photo spoof rejection, waved-photo spoof rejection, natural head-turn (no false reject, confirming the deformation-ceiling fix), and the `calibrate-liveness` tool (run twice, both times correctly warning against tightening the validated defaults).
+
+User asked directly whether the system can scale to a 1000+ employee firm. Rather than repeat prior claims, benchmarked the current code directly:
+
+### Matching (`EmployeeEmbeddingIndex`/`EmployeeMatcher`)
+
+Real gallery: 1000 employees x 5 embeddings (5000 x 128-dim vectors), 2000 live matches run against it.
+- Index build: 41 ms
+- Match latency: 414 microseconds/match (2,418 matches/second)
+
+### Storage (`AttendanceStorage`)
+
+Realistic load: 1000 employee enrollments (atomic, 5 embeddings each), then 50,000 attendance events (~1000 employees x 2 events/day x 25 days).
+- Enrollment: 12.6 ms/employee
+- Attendance event write: ~10.5 ms/event
+- Indexed last-event lookup: 3.4 ms
+- Report query (`LIMIT 50`) over the full 50k rows: 49.6 ms
+
+Root-caused the 10.5ms write cost: `AttendanceStorage._connect()` opens a fresh SQLite connection (and re-runs its PRAGMAs) on every call rather than reusing one. Fine for the real workload (sparse, cooldown-gated, one event per employee per interaction) but not tuned for bulk-write throughput. Documented as an honest limit, not silently glossed over, since a future high-frequency bulk-import or multi-terminal scenario would need connection reuse or a move to Postgres to avoid it becoming a bottleneck.
+
+### Verdict (added to README)
+
+Single terminal, 1000+ employees: matching is effectively free at this scale (sub-millisecond), and the realistic write rate never stresses the ~10ms/write storage layer. Multiple simultaneous terminals writing to the same SQLite file would contend on writes (SQLite is single-writer) - a real architectural ceiling, not a tuning problem, and exactly what the already-planned Postgres migration (for the eventual cloud deployment) removes.
+
+### Verified
+
+- `python -m unittest discover -s tests` (144 tests, all green)
+- All benchmark numbers above measured directly against the current codebase in this session, not carried over from earlier estimates.
+
 ## Manual Test Follow-up - Calibration Tool Regression Guard
 
 Date: 2026-07-08

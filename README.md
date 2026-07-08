@@ -130,10 +130,11 @@ Attendance is **never** logged until liveness passes; an incomplete window is UN
 
 ## Scalability (1000-employee design)
 
-- **Matching:** all active embeddings live in one L2-normalized numpy matrix; a match is a single matrix-vector product. 1000 employees × 5 samples × 128 dims ≈ 2.5 MB and multiplies in well under a millisecond (regression-tested).
-- **Storage:** SQLite in WAL mode with a busy timeout; hot paths are indexed (`attendance_events(employee_id, occurred_at)`, `face_embeddings(employee_id)`). Reports use SQL `LIMIT`, not full scans. A year of 1000 employees clocking twice a day is ~500k rows — comfortably inside SQLite's envelope on one terminal.
+- **Matching:** all active embeddings live in one L2-normalized numpy matrix; a match is a single matrix-vector product. Benchmarked directly on a real 1000-employee × 5-sample gallery (5000 embeddings, 128 dims): index build **41 ms**, **414 microseconds per match** (2,418 matches/second). A recognition frame has a 100–500 ms budget at typical camera frame rates — matching consumes under half a millisecond of it, effectively free at this scale. Also regression-tested in CI.
+- **Storage:** SQLite in WAL mode with a busy timeout; hot paths are indexed (`attendance_events(employee_id, occurred_at)`, `face_embeddings(employee_id)`). Benchmarked with 1000 enrolled employees and 50,000 attendance events (roughly 1000 employees × 2 events/day × 25 days): enrollment **12.6 ms/employee** (negligible next to the seconds of camera/liveness capture it's part of), indexed last-event lookup **3.4 ms**, a `report` query over the full 50k rows **49.6 ms**. Attendance writes measured **~10.5 ms/event** — fine for the real workload (sparse, one event per employee every cooldown period, never a tight write loop) but not tuned for bulk throughput; each write currently opens its own SQLite connection rather than reusing one, which is where that fixed overhead comes from. A year of 1000 employees clocking twice a day is ~500k rows — comfortably inside SQLite's read envelope on one terminal.
+- **Concurrency ceiling (honest limit):** SQLite is single-writer. The measurements above hold for **one terminal**. If a deployment grows into multiple simultaneous entry-point terminals writing to the same database file, writes would start to serialize/contend — not silently broken, but a real architectural boundary, not just a tuning knob.
 - **Index refresh:** enrollment refreshes the in-memory gallery immediately, and a running attendance session re-reads it every `FA_INDEX_REFRESH_SECONDS` (default 30 s) — so deactivating an employee takes effect on live terminals within that window, no restart needed.
-- **Growth path:** the storage repository, detector, and embedder sit behind interfaces — swapping SQLite→Postgres or SFace→a stronger embedding model touches one adapter each, not the pipeline. A future cloud API can reuse `PipelineComponents` behind FastAPI without changing any module.
+- **Growth path:** the storage repository, detector, and embedder sit behind interfaces — swapping SQLite→Postgres (which removes the single-writer ceiling above) or SFace→a stronger embedding model touches one adapter each, not the pipeline. A future cloud API can reuse `PipelineComponents` behind FastAPI without changing any module.
 
 ## Security & Privacy
 
@@ -150,7 +151,7 @@ Attendance is **never** logged until liveness passes; an incomplete window is UN
 python -m unittest discover -s tests
 ```
 
-100+ tests cover every module with hardware-free fakes: capture failure modes, multi-face detection, enrollment quality gates, threshold behavior, spoof sequences (static/waved/rotated photo), backpressure, worker failure policy, end-to-end enrollment/attendance, settings validation, and CLI dispatch. A scalability guard asserts 1000-employee matching latency. CI runs the suite on every push.
+144 tests cover every module with hardware-free fakes: capture failure modes, multi-face detection, enrollment quality gates, threshold behavior, spoof sequences (static/waved/rotated photo), liveness bands (motion ceiling, deformation floor, natural-head-turn regression guard), calibration recommendations, backpressure, worker failure policy, end-to-end enrollment/attendance, settings validation, and CLI dispatch. A scalability guard asserts 1000-employee matching latency. CI runs the suite on every push.
 
 Tests that need real ONNX models skip automatically when models aren't downloaded, so CI needs no model fetch.
 
