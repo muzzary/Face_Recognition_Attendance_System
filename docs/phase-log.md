@@ -1,5 +1,25 @@
 # Phase Log
 
+## Manual Test Follow-up - Camera Open Progress Messaging
+
+Date: 2026-07-08
+
+### Changed
+
+- User reported `attend` "getting stuck" on a second run after the first ran fine. Reproduced directly: a fresh-process `cv2.VideoCapture(0, cv2.CAP_DSHOW)` open took 90.1s on this hardware after the camera had been idle, versus 0.4-0.5s once "warm" (confirmed the same call twice in one process: 90.1s then 0.4s). Root cause is Windows-level, not application logic: `Get-Service FrameServer` showed `Stopped`/`Manual` — the Frame Server that arbitrates camera access demand-starts on first access after idling, and video driver DLLs can be scanned by antivirus on first load. `cv2.VideoCapture()` has no timeout knob, so the app was silent for up to 90s, indistinguishable from a real hang.
+- `_make_camera` in `cli.py` now prints "Opening camera..." immediately and a background daemon thread prints a reassurance line every 5 seconds while the (still-blocking) open call is in flight, so a slow cold start reads as "waiting" instead of "frozen". No behavior change to the camera/backend logic itself - this is observability only.
+- Documented the behavior honestly in the README: this is OS-level latency we cannot shorten, most noticeable after camera idle time.
+
+### Verified
+
+- `python -m unittest discover -s tests` (117 tests, all green)
+- Reproduced the slow cold-open directly via PowerShell diagnostics (90.1s cold, 0.4-0.5s warm, confirmed 3x).
+- Confirmed `FrameServer` Windows service is demand-started (`Manual`) and was `Stopped` at the time of the slow open.
+
+### Review
+
+- Clean: this cannot be fixed by the application (native blocking call, OS service cold start); messaging is the correct and honest mitigation. The backend cache (previous entry) still saves the MSMF-probe portion of the delay; this entry addresses the remaining DirectShow-itself cold-start cost.
+
 ## Manual Test Follow-up - Camera Backend Cache
 
 Date: 2026-07-08

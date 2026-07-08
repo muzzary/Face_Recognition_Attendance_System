@@ -14,6 +14,7 @@ from __future__ import annotations
 import argparse
 import logging
 import sys
+import threading
 from datetime import datetime, timezone
 
 from face_attendance.app import (
@@ -142,7 +143,37 @@ def _make_camera(settings: AppSettings, camera_index: int | None) -> OpenCvCamer
     # camera actually delivers frames on, so only the first launch pays the
     # auto-probe cost.
     cache_path = settings.database_path.parent / "camera_backend.json"
-    return open_camera_remembering_backend(index, settings.camera_backend, cache_path)
+
+    print(f"Opening camera {index}...")
+    # cv2.VideoCapture() is a blocking native call with no timeout knob. On
+    # Windows it can silently take 30-90s when the camera hasn't been used
+    # recently (the on-demand Frame Server service has to cold-start, and
+    # antivirus may scan the video driver DLLs on first load). That is real
+    # OS-level latency we cannot shorten - but silence during it looks
+    # identical to a hang, so a background thread prints reassurance while
+    # the open() call is still in flight.
+    done = threading.Event()
+
+    def _reassure() -> None:
+        waited = 0
+        while not done.wait(5):
+            waited += 5
+            print(
+                f"  ...still waiting for the camera ({waited}s). This can take "
+                "up to ~90s on Windows if the camera hasn't been used recently "
+                "(camera service cold start); it is not stuck."
+            )
+
+    reassurance = threading.Thread(target=_reassure, daemon=True)
+    reassurance.start()
+    try:
+        camera = open_camera_remembering_backend(
+            index, settings.camera_backend, cache_path
+        )
+    finally:
+        done.set()
+    print("Camera ready.")
+    return camera
 
 
 def main(argv: list[str] | None = None) -> int:
