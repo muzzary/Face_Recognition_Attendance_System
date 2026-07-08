@@ -161,6 +161,11 @@ class LivenessResult(StrictModel):
     frame_count: int = Field(gt=0)
     confidence_score: float = Field(ge=0.0, le=1.0)
     reason: str | None = None
+    # Raw measured signals (None until a full evidence window exists), kept
+    # so real deployments can observe and calibrate FA_LIVENESS_* thresholds
+    # against actual camera/lighting conditions instead of guessing.
+    motion: float | None = Field(default=None, ge=0.0)
+    deformation: float | None = Field(default=None, ge=0.0)
 
     @model_validator(mode="after")
     def require_reason_for_failure(self) -> LivenessResult:

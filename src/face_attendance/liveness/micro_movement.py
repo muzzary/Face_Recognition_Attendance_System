@@ -135,6 +135,7 @@ class MicroMovementLivenessChecker:
                     "no natural head movement detected across frames "
                     "(possible static photo)"
                 ),
+                motion=motion,
             )
 
         deformation = _non_rigid_deformation(stacks)
@@ -148,6 +149,8 @@ class MicroMovementLivenessChecker:
                     "movement is rigid, face does not deform naturally "
                     "(possible photo or screen spoof)"
                 ),
+                motion=motion,
+                deformation=deformation,
             )
 
         motion_margin = min(1.0, motion / (self._min_motion * 4.0))
@@ -158,6 +161,8 @@ class MicroMovementLivenessChecker:
             method=LIVENESS_METHOD,
             frame_count=count,
             confidence_score=min(1.0, confidence),
+            motion=motion,
+            deformation=deformation,
         )
 
 

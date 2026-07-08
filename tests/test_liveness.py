@@ -12,6 +12,9 @@ from face_attendance.contracts import (
 from face_attendance.liveness import LivenessError, MicroMovementLivenessChecker
 from fakes import make_frame
 
+DEFAULT_MIN_MOTION = 0.004
+DEFAULT_MIN_DEFORMATION = 0.006
+
 # Base face geometry: inter-ocular distance 60px.
 BASE_POINTS = np.array(
     [
@@ -105,6 +108,10 @@ class LivenessTests(unittest.TestCase):
 
         self.assertEqual(result.status, LivenessStatus.PASSED)
         self.assertGreaterEqual(result.confidence_score, 0.5)
+        # Raw metrics must be surfaced for real-world threshold calibration.
+        assert result.motion is not None and result.deformation is not None
+        self.assertGreaterEqual(result.motion, DEFAULT_MIN_MOTION)
+        self.assertGreaterEqual(result.deformation, DEFAULT_MIN_DEFORMATION)
 
     def test_static_photo_fails(self) -> None:
         result = run_sequence(self.checker, static_sequence(12))
@@ -112,6 +119,9 @@ class LivenessTests(unittest.TestCase):
         self.assertEqual(result.status, LivenessStatus.FAILED)
         assert result.reason is not None
         self.assertIn("static photo", result.reason)
+        assert result.motion is not None
+        self.assertLess(result.motion, DEFAULT_MIN_MOTION)
+        self.assertIsNone(result.deformation)  # never reached that check
 
     def test_waved_photo_fails_as_rigid(self) -> None:
         result = run_sequence(self.checker, waved_photo_sequence(12))
@@ -119,6 +129,9 @@ class LivenessTests(unittest.TestCase):
         self.assertEqual(result.status, LivenessStatus.FAILED)
         assert result.reason is not None
         self.assertIn("rigid", result.reason)
+        assert result.motion is not None and result.deformation is not None
+        self.assertGreaterEqual(result.motion, DEFAULT_MIN_MOTION)
+        self.assertLess(result.deformation, DEFAULT_MIN_DEFORMATION)
 
     def test_track_gap_resets_evidence(self) -> None:
         from datetime import datetime, timedelta, timezone

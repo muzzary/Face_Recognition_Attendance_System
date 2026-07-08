@@ -69,7 +69,33 @@ class ContractTests(unittest.TestCase):
         self.assertEqual(face.frame.camera_id, "front-door")
         self.assertEqual(embedding.dimensions, 3)
         self.assertEqual(liveness.status, LivenessStatus.PASSED)
+        self.assertIsNone(liveness.motion)
+        self.assertIsNone(liveness.deformation)
         self.assertEqual(event.event_type, AttendanceEventType.CLOCK_IN)
+
+    def test_liveness_result_accepts_raw_metrics(self) -> None:
+        liveness = LivenessResult(
+            status=LivenessStatus.FAILED,
+            method="micro-movement-v1",
+            frame_count=12,
+            confidence_score=0.1,
+            reason="possible static photo",
+            motion=0.0012,
+            deformation=0.0031,
+        )
+
+        self.assertEqual(liveness.motion, 0.0012)
+        self.assertEqual(liveness.deformation, 0.0031)
+
+    def test_liveness_result_rejects_negative_metrics(self) -> None:
+        with self.assertRaises(ValidationError):
+            LivenessResult(
+                status=LivenessStatus.PASSED,
+                method="micro-movement-v1",
+                frame_count=12,
+                confidence_score=0.8,
+                motion=-0.001,
+            )
 
     def test_extra_fields_are_rejected(self) -> None:
         with self.assertRaises(ValidationError):

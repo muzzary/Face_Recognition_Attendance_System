@@ -1,5 +1,24 @@
 # Phase Log
 
+## Manual Test Follow-up - Liveness Metric Visibility for Calibration
+
+Date: 2026-07-08
+
+### Changed
+
+- A manual test showed a CLOCK_IN logged for what the user believed was a still-photo spoof attempt. Root-cause theory: `FA_LIVENESS_MIN_MOTION`/`FA_LIVENESS_MIN_DEFORMATION` (0.004/0.006) were conservative guesses made before any real-hardware calibration was possible, and natural hand tremor while holding a phone/photo can plausibly exceed such small thresholds. Rather than guess new numbers, added visibility into the actual measured values so real-hardware data drives the threshold, not a guess.
+- `LivenessResult` gained optional `motion`/`deformation` fields (`>= 0`, `None` while gathering evidence), populated by `MicroMovementLivenessChecker` on every full-window evaluation.
+- `attend`'s console output now appends the raw values to every liveness message, e.g. `... [motion=0.0012]` or `... [motion=0.0150, deform=0.0200]` on a logged clock-in - printed once per state change (dedupe still keys on the stable reason text, not the fluctuating numbers, so this does not reintroduce per-frame spam).
+- Added `tests/test_attend_reporting.py` (metrics-suffix formatting, dedupe-with-metrics behavior, passing-metrics on a logged event) and extended `test_liveness.py`/`test_contracts.py` for the new fields.
+
+### Verified
+
+- `python -m unittest discover -s tests` (126 tests, all green)
+
+### Pending
+
+- Re-run the manual live-face and static/waved-photo tests with this build to capture real motion/deformation numbers, then set `FA_LIVENESS_MIN_MOTION`/`FA_LIVENESS_MIN_DEFORMATION` from that evidence.
+
 ## Manual Test Follow-up - Camera Open Progress Messaging
 
 Date: 2026-07-08

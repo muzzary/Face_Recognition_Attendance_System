@@ -95,6 +95,8 @@ Liveness is multi-frame (`FA_LIVENESS_WINDOW_SIZE`, default 12 frames per identi
 
 Attendance is **never** logged until liveness passes; an incomplete window is UNKNOWN, and UNKNOWN never logs.
 
+Every liveness message printed by `attend` now includes the raw measured values, e.g. `EMP-001: no natural head movement detected across frames (possible static photo) [motion=0.0012]` or a passing `CLOCK_IN: ... [motion=0.0150, deform=0.0200]` — compare these against `FA_LIVENESS_MIN_MOTION`/`FA_LIVENESS_MIN_DEFORMATION` to calibrate for your camera instead of guessing.
+
 **Honest limitations:**
 - A screen **replaying a video** of the employee produces non-rigid motion and is *not* caught by this method. Defeating video replay requires texture/moiré analysis, depth sensing, or challenge-response — out of scope here and documented as the main residual risk.
 - Default thresholds are conservative; verify them against your camera with the demo checklist (`docs/demo-checklist.md`) and tune via `FA_LIVENESS_*` if needed.

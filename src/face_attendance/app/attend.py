@@ -11,7 +11,7 @@ from typing import Callable
 
 from face_attendance.app.factory import PipelineComponents
 from face_attendance.capture import CaptureError, Frame, FrameSource
-from face_attendance.contracts import LivenessStatus
+from face_attendance.contracts import LivenessResult, LivenessStatus
 from face_attendance.pipeline import (
     LatestFrameSlot,
     PipelineError,
@@ -176,6 +176,7 @@ def _report_output(
                 f"{event.event_type.value.upper()}: {event.employee_id} at "
                 f"{event.occurred_at.isoformat(timespec='seconds')} "
                 f"(confidence {event.confidence_score:.2f})"
+                f"{_liveness_metrics_suffix(outcome.liveness)}"
             )
             last_messages.pop(event.employee_id, None)
         elif outcome.match.is_match and outcome.match.employee_id is not None:
@@ -185,9 +186,26 @@ def _report_output(
                 if outcome.decision is not None
                 else (outcome.liveness.reason if outcome.liveness else "processing")
             ) or "processing"
+            # Dedupe on the stable reason text only; the metrics suffix is
+            # appended to what's printed so a threshold-tuning session still
+            # gets one representative sample per state instead of a spam
+            # stream of frame-to-frame noise.
             if last_messages.get(employee_id) != reason:
-                on_message(f"{employee_id}: {reason}")
+                on_message(
+                    f"{employee_id}: {reason}{_liveness_metrics_suffix(outcome.liveness)}"
+                )
                 last_messages[employee_id] = reason
+
+
+def _liveness_metrics_suffix(liveness: LivenessResult | None) -> str:
+    """Raw motion/deformation values, for FA_LIVENESS_* threshold calibration."""
+
+    if liveness is None or liveness.motion is None:
+        return ""
+    parts = [f"motion={liveness.motion:.4f}"]
+    if liveness.deformation is not None:
+        parts.append(f"deform={liveness.deformation:.4f}")
+    return " [" + ", ".join(parts) + "]"
 
 
 def _show_frame(
