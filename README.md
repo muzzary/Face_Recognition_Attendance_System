@@ -112,6 +112,8 @@ face-attendance calibrate-liveness --duration 20
 
 Move naturally during the recording (turn your head, glance around, nod — no photo). It reports the observed motion/deformation range and recommended `FA_LIVENESS_MAX_MOTION` / `FA_LIVENESS_MIN_DEFORMATION` values for that specific camera, then re-verify with the demo checklist (a live pass and a spoof rejection should still both hold).
 
+**A single short run can recommend a *worse* value than an already-validated default — this happened in testing, not hypothetically.** A 20-second calm session measured a lower peak motion than earlier, more varied sessions on the same camera had already shown was normal; naively adopting its "recommended" (tighter) ceiling would have reintroduced the exact false-reject bug described above. The tool now compares its recommendation against whatever is currently configured and prints an explicit warning whenever it suggests *tightening* an existing value — read that warning before adopting a narrower number than what's already running, especially on a camera/threshold combination that's been through real validation.
+
 Attendance is **never** logged until liveness passes; an incomplete window is UNKNOWN, and UNKNOWN never logs. Every liveness message printed by `attend` includes the raw measured values, e.g. `EMP-001: movement is more erratic than a natural head... [motion=0.1962, deform=0.0286]` or a passing `CLOCK_IN: ... [motion=0.0848, deform=0.0152]` — compare these against the `FA_LIVENESS_*` band settings to recalibrate for a different camera/lighting setup.
 
 **Honest limitations:**

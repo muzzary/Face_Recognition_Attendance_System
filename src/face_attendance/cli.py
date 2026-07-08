@@ -248,7 +248,11 @@ def _dispatch(args: argparse.Namespace, settings: AppSettings) -> int:
             )
         finally:
             camera.close()
-        print_calibration_report(result)
+        print_calibration_report(
+            result,
+            current_max_motion=settings.liveness_max_motion,
+            current_min_deformation=settings.liveness_min_deformation,
+        )
         return 0
 
     if args.command == "enroll":

@@ -1,5 +1,39 @@
 # Phase Log
 
+## Manual Test Follow-up - Calibration Tool Regression Guard
+
+Date: 2026-07-08
+
+### The problem
+
+First real use of `calibrate-liveness` immediately exposed a flaw in the tool itself, not just the numbers it measures. A 20-second calibration session on the same camera/machine already validated across four prior manual test rounds measured:
+
+- motion observed range: 0.0135 - 0.0672
+- recommended `FA_LIVENESS_MAX_MOTION`: 0.0874 (0.0672 * 1.3 margin)
+
+But an earlier session's `docs/phase-log.md` entry recorded a legitimate, non-hectic PASSING reading of `motion=0.1099` on this exact camera. Adopting the new tool's recommendation would have set the ceiling *below* a value already proven to be normal live behavior - reintroducing the false-reject bug fixed two entries above this one, caused by the calibration tool itself rather than a bad guess.
+
+Root cause: a single short session can under-sample the true range of natural human movement. The recommendation formula (`observed_max * margin`) is only as good as how representative the sampled session was, and nothing in the original tool compared its output against what was already configured and validated.
+
+### The fix
+
+- `print_calibration_report` now takes the currently configured `FA_LIVENESS_MAX_MOTION`/`FA_LIVENESS_MIN_DEFORMATION` and compares against them:
+  - If the recommended motion ceiling is **tighter** (lower) than what's configured, prints an explicit warning: a single short session can under-sample movement variety, and narrowing an already-validated ceiling risks reintroducing false rejects. Recommends a longer `--duration`, multiple runs, or multiple real users before tightening.
+  - If the recommended deformation floor is **lower** than what's configured, prints a different warning: this makes the spoof-rejection check *more permissive* (security-weakening direction), and should only be adopted with specific evidence the current floor false-rejects genuine users.
+  - A recommendation that *widens* either value (safer direction, accommodating a noisier/slower camera) prints without a warning.
+- CLI wires the actual current `AppSettings` values through, so the comparison reflects whatever is really configured (including prior env-var overrides), not just the shipped defaults.
+- README updated to state this happened during real testing, not hypothetically, and to tell operators to read the warning before adopting a narrower number.
+
+### Verified
+
+- `python -m unittest discover -s tests` (144 tests, all green)
+- Replayed the user's actual reported calibration output through the fixed report function directly: correctly prints the "TIGHTER" warning for motion and the "MORE permissive" warning for deformation.
+
+### Review
+
+- Clean: a widening recommendation (the safe direction) still prints without noise, so the warning stays meaningful when it does appear.
+- This is the second time in this liveness work that a plausible-looking, formula-driven number turned out to be wrong only once checked against previously validated real data (the first was the v2 deformation ceiling). Both times the fix was to make the tooling itself surface the check, not to rely on remembering to do it manually every time.
+
 ## Manual Test Follow-up - Per-Camera Liveness Calibration Command
 
 Date: 2026-07-08

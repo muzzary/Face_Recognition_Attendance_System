@@ -126,7 +126,10 @@ class PrintCalibrationReportTests(unittest.TestCase):
         result = CalibrationResult(samples=[(0.05, 0.01)])
         messages: list[str] = []
 
-        print_calibration_report(result, on_message=messages.append)
+        print_calibration_report(
+            result, current_max_motion=0.11, current_min_deformation=0.003,
+            on_message=messages.append,
+        )
 
         self.assertTrue(any("only 1" in m for m in messages))
 
@@ -134,7 +137,10 @@ class PrintCalibrationReportTests(unittest.TestCase):
         result = CalibrationResult()
         messages: list[str] = []
 
-        print_calibration_report(result, on_message=messages.append)
+        print_calibration_report(
+            result, current_max_motion=0.11, current_min_deformation=0.003,
+            on_message=messages.append,
+        )
 
         self.assertTrue(any("0 full evaluation" in m for m in messages))
         self.assertFalse(any("Recommended settings" in m for m in messages))
@@ -145,11 +151,42 @@ class PrintCalibrationReportTests(unittest.TestCase):
         )
         messages: list[str] = []
 
-        print_calibration_report(result, on_message=messages.append)
+        print_calibration_report(
+            result, current_max_motion=0.11, current_min_deformation=0.003,
+            on_message=messages.append,
+        )
 
         joined = "\n".join(messages)
         self.assertIn("FA_LIVENESS_MAX_MOTION", joined)
         self.assertIn("FA_LIVENESS_MIN_DEFORMATION", joined)
+
+    def test_warns_when_recommendation_is_tighter_than_current(self) -> None:
+        # Regression test: this is the exact real-world case that surfaced -
+        # a short calm session recommending a narrower ceiling than an
+        # already-validated wider one must not pass silently.
+        result = CalibrationResult(samples=[(0.02, 0.005), (0.0672, 0.0018)])
+        messages: list[str] = []
+
+        print_calibration_report(
+            result, current_max_motion=0.11, current_min_deformation=0.003,
+            on_message=messages.append,
+        )
+
+        joined = "\n".join(messages)
+        self.assertIn("TIGHTER than the currently configured value", joined)
+        self.assertIn("MORE permissive", joined)
+
+    def test_no_tightening_warning_when_recommendation_widens(self) -> None:
+        result = CalibrationResult(samples=[(0.09, 0.004), (0.10, 0.005)])
+        messages: list[str] = []
+
+        print_calibration_report(
+            result, current_max_motion=0.11, current_min_deformation=0.003,
+            on_message=messages.append,
+        )
+
+        joined = "\n".join(messages)
+        self.assertNotIn("TIGHTER than the currently configured value", joined)
 
 
 if __name__ == "__main__":

@@ -113,8 +113,23 @@ def run_liveness_calibration(
 
 
 def print_calibration_report(
-    result: CalibrationResult, on_message: Callable[[str], None] = print
+    result: CalibrationResult,
+    current_max_motion: float,
+    current_min_deformation: float,
+    on_message: Callable[[str], None] = print,
 ) -> None:
+    """Print observed ranges and recommendations, comparing against the
+    currently configured values so a tightened recommendation is flagged
+    rather than silently trusted.
+
+    A single short session can easily under-sample the true range of
+    natural movement. If the currently configured values were already
+    validated (e.g. across multiple real sessions), a *narrower* value
+    recommended from one shorter run is a regression risk, not an
+    improvement - this was caught directly during this project's own
+    development (see docs/phase-log.md).
+    """
+
     if result.sample_count < MIN_USEFUL_SAMPLES:
         on_message(
             f"warning: only {result.sample_count} full evaluation window(s) captured; "
@@ -132,12 +147,40 @@ def print_calibration_report(
     on_message(
         f"  deformation observed range: {deformation_range[0]:.4f} - {deformation_range[1]:.4f}"
     )
+
+    recommended_max_motion = result.recommended_max_motion()
+    recommended_min_deformation = result.recommended_min_deformation()
+
     on_message("\nRecommended settings for this camera:")
-    on_message(f"  FA_LIVENESS_MAX_MOTION={result.recommended_max_motion():.4f}")
-    on_message(f"  FA_LIVENESS_MIN_DEFORMATION={result.recommended_min_deformation():.4f}")
     on_message(
-        "\nSet these as environment variables before running 'attend' or "
-        "'enroll' on this machine, then re-verify with the demo checklist "
-        "(docs/demo-checklist.md) - both a live-face pass and a spoof "
-        "rejection should still hold."
+        f"  FA_LIVENESS_MAX_MOTION={recommended_max_motion:.4f}  "
+        f"(currently configured: {current_max_motion:.4f})"
+    )
+    if recommended_max_motion < current_max_motion:
+        on_message(
+            "  NOTE: this is TIGHTER than the currently configured value. A "
+            "single short session can under-sample natural movement variety "
+            "- do not adopt a narrower ceiling than an already-validated one "
+            "without more evidence (a longer --duration, multiple runs on "
+            "different days, or several real users). Doing so risks "
+            "reintroducing false rejects for legitimate but slightly more "
+            "energetic natural movement."
+        )
+    on_message(
+        f"  FA_LIVENESS_MIN_DEFORMATION={recommended_min_deformation:.4f}  "
+        f"(currently configured: {current_min_deformation:.4f})"
+    )
+    if recommended_min_deformation < current_min_deformation:
+        on_message(
+            "  NOTE: this is LOWER than the currently configured floor, which "
+            "makes the spoof-rejection check MORE permissive (a rigid object "
+            "needs to deform even less to still be flagged). Only lower this "
+            "if you have specific evidence the current floor false-rejects "
+            "genuine live users on this camera."
+        )
+    on_message(
+        "\nIf you adopt either value, set it as an environment variable "
+        "before running 'attend' or 'enroll' on this machine, then "
+        "re-verify with the demo checklist (docs/demo-checklist.md) - both "
+        "a live-face pass and a spoof rejection should still hold."
     )
