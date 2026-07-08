@@ -29,7 +29,7 @@ Last updated: 2026-07-07
 - `attendance_logging/` - `AttendanceService`: clock-in/out toggling, cooldown, liveness gating. Named to avoid clashing with stdlib `logging`.
 - `storage/` - SQLite schema (WAL, indexes) and `AttendanceStorage` repository.
 - `config/` - `AppSettings`: validated runtime configuration with `FA_*` env overrides.
-- `app/` - application flows: `factory.py` (component wiring), `enroll.py`, `attend.py`, `report.py`.
+- `app/` - application flows: `factory.py` (component wiring), `enroll.py`, `attend.py`, `report.py`, `calibrate.py` (per-camera liveness threshold recommendation).
 
 ## Scripts
 
@@ -51,6 +51,7 @@ Last updated: 2026-07-07
 - `tests/test_pipeline.py` - backpressure, worker error policy, shutdown.
 - `tests/test_config.py` - settings defaults, env overrides, validation errors.
 - `tests/test_app.py` - end-to-end enrollment/attendance with fakes, CLI dispatch.
+- `tests/test_calibrate.py` - liveness calibration sampling, recommendation formulas, report output.
 
 ## Docs
 

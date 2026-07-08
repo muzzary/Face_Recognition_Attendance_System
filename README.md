@@ -33,6 +33,9 @@ Dependencies are deliberately minimal: `pydantic`, `numpy`, `opencv-python`. Det
 ## Usage
 
 ```powershell
+# On a new terminal/camera, calibrate liveness before trusting the defaults
+face-attendance calibrate-liveness --duration 20
+
 # Enroll an employee (captures 5 quality-checked samples from the webcam)
 face-attendance enroll --employee-id EMP-001 --name "Ada Lovelace"
 
@@ -100,6 +103,14 @@ Liveness is multi-frame (`FA_LIVENESS_WINDOW_SIZE`, default 16 frames per identi
 - **v3 (shipped):** the v2 deformation ceiling then rejected a real employee's *natural head turn* — turning your head is *also* an out-of-plane rotation the in-plane-only correction can't remove, so it reads the same as a tilted spoof. Confirmed on real hardware: calm live deformation 0.0106 → same person just turning their head naturally, 0.0228 (more than double), motion barely changed (0.0250 → 0.0290). Deformation's ceiling was removed entirely; the floor (unchanged from v1) still catches a rigid object held with zero deformation. Motion's band, which held up consistently and safely across every real test session collected, remains the primary two-sided gate.
 
 The full investigation, including every real measured reading, is in `docs/phase-log.md`.
+
+**These specific numbers are tied to the camera, lighting, and processing speed they were measured on** — not universal constants. Three camera-specific factors feed directly into them: the landmark detector's pixel-noise floor (varies with sensor/lighting quality), the achievable processing frame rate (motion is measured between *consecutively processed* frames, not per-second — a slower camera/pipeline inflates the same physical movement into a larger value), and standing distance (noise doesn't shrink proportionally with the normalizing inter-ocular distance, so standing farther away inflates readings). For a deployment with multiple terminals on different camera hardware, run this on each one before trusting the defaults:
+
+```powershell
+face-attendance calibrate-liveness --duration 20
+```
+
+Move naturally during the recording (turn your head, glance around, nod — no photo). It reports the observed motion/deformation range and recommended `FA_LIVENESS_MAX_MOTION` / `FA_LIVENESS_MIN_DEFORMATION` values for that specific camera, then re-verify with the demo checklist (a live pass and a spoof rejection should still both hold).
 
 Attendance is **never** logged until liveness passes; an incomplete window is UNKNOWN, and UNKNOWN never logs. Every liveness message printed by `attend` includes the raw measured values, e.g. `EMP-001: movement is more erratic than a natural head... [motion=0.1962, deform=0.0286]` or a passing `CLOCK_IN: ... [motion=0.0848, deform=0.0152]` — compare these against the `FA_LIVENESS_*` band settings to recalibrate for a different camera/lighting setup.
 

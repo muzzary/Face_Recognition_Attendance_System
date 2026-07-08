@@ -1,12 +1,14 @@
 """Command-line interface for the face-recognition attendance system.
 
 Commands:
-    init-db           create or migrate the SQLite database
-    download-models   fetch the pinned ONNX models
-    enroll            enroll a new employee from the camera
-    attend            run live attendance mode
-    report            show recent attendance events
-    employees         list, deactivate, or reactivate employees
+    init-db             create or migrate the SQLite database
+    download-models     fetch the pinned ONNX models
+    calibrate-liveness  measure this camera's real motion/deformation
+                        range and recommend FA_LIVENESS_* settings
+    enroll              enroll a new employee from the camera
+    attend              run live attendance mode
+    report              show recent attendance events
+    employees           list, deactivate, or reactivate employees
 """
 
 from __future__ import annotations
@@ -20,9 +22,11 @@ from datetime import datetime, timezone
 from face_attendance.app import (
     build_components,
     print_attendance_report,
+    print_calibration_report,
     print_employees,
     run_attendance,
     run_enrollment,
+    run_liveness_calibration,
 )
 from face_attendance.capture import (
     CaptureError,
@@ -30,7 +34,7 @@ from face_attendance.capture import (
     open_camera_remembering_backend,
 )
 from face_attendance.config import AppSettings, SettingsError
-from face_attendance.detection import DetectionError
+from face_attendance.detection import DetectionError, YuNetDetector
 from face_attendance.embeddings import EmbeddingError, EnrollmentError
 from face_attendance.liveness import LivenessError
 from face_attendance.matching import MatchingError
@@ -71,6 +75,16 @@ def build_parser() -> argparse.ArgumentParser:
     subparsers.add_parser("init-db", help="create or migrate the database")
 
     subparsers.add_parser("download-models", help="fetch the pinned ONNX models")
+
+    calibrate = subparsers.add_parser(
+        "calibrate-liveness",
+        help="measure this camera's real motion/deformation range and "
+        "recommend FA_LIVENESS_* settings",
+    )
+    calibrate.add_argument("--camera-index", type=int, default=None)
+    calibrate.add_argument(
+        "--duration", type=float, default=20.0, help="seconds to record (default 20)"
+    )
 
     enroll = subparsers.add_parser("enroll", help="enroll a new employee")
     enroll.add_argument("--employee-id", required=True, help="unique employee id")
@@ -121,14 +135,15 @@ def _setup_logging(settings: AppSettings) -> None:
     )
 
 
-def _require_models(settings: AppSettings) -> None:
+def _require_models(settings: AppSettings, need_sface: bool = True) -> None:
     """Fail fast with a clear message before any camera work starts."""
 
-    missing = [
-        str(path)
-        for path in (settings.yunet_model_path, settings.sface_model_path)
-        if not path.is_file()
-    ]
+    required = (
+        (settings.yunet_model_path, settings.sface_model_path)
+        if need_sface
+        else (settings.yunet_model_path,)
+    )
+    missing = [str(path) for path in required if not path.is_file()]
     if missing:
         raise ModelDownloadError(
             "missing model files: "
@@ -218,6 +233,22 @@ def _dispatch(args: argparse.Namespace, settings: AppSettings) -> int:
         storage.set_employee_active(args.employee_id, active)
         stamp = datetime.now(timezone.utc).isoformat(timespec="seconds")
         print(f"{args.employee_id} {'re' if active else 'de'}activated at {stamp}")
+        return 0
+
+    if args.command == "calibrate-liveness":
+        _require_models(settings, need_sface=False)
+        detector = YuNetDetector(
+            model_path=settings.yunet_model_path,
+            score_threshold=settings.detection_score_threshold,
+        )
+        camera = _make_camera(settings, args.camera_index)
+        try:
+            result = run_liveness_calibration(
+                detector, camera, duration_seconds=args.duration
+            )
+        finally:
+            camera.close()
+        print_calibration_report(result)
         return 0
 
     if args.command == "enroll":

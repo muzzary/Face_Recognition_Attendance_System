@@ -237,6 +237,21 @@ class CliTests(unittest.TestCase):
             with self.assertRaises(SystemExit):
                 self.run_cli(["frobnicate"], temp_dir)
 
+    def test_calibrate_liveness_fails_fast_without_yunet_model(self) -> None:
+        with TemporaryDirectory() as temp_dir:
+            self.run_cli(["init-db"], temp_dir)
+            # Force a models dir with nothing in it, regardless of what real
+            # models happen to be present in this repo's own models/ folder.
+            env = {
+                "FA_DATABASE_PATH": str(Path(temp_dir) / "cli.db"),
+                "FA_LOG_DIR": str(Path(tempfile.gettempdir()) / "fa-cli-test-logs"),
+                "FA_MODELS_DIR": str(Path(temp_dir) / "empty_models"),
+            }
+            with patch.dict(os.environ, env):
+                exit_code = main(["calibrate-liveness"])
+
+            self.assertEqual(exit_code, 1)
+
 
 if __name__ == "__main__":
     unittest.main()

@@ -1,5 +1,25 @@
 # Phase Log
 
+## Manual Test Follow-up - Per-Camera Liveness Calibration Command
+
+Date: 2026-07-08
+
+### Changed
+
+- After confirming the deformation-ceiling fix, the user asked a sharp question: don't the calibrated motion/deformation numbers depend on the specific camera? Yes - three camera-specific factors feed directly into them: landmark-detector pixel-noise floor (sensor/lighting dependent), achievable processing frame rate (motion is measured between *consecutively processed* frames, so a slower camera/pipeline inflates the same physical movement), and standing distance (noise doesn't shrink proportionally with the normalizing inter-ocular distance). This matters for a system meant to scale across multiple terminals/cameras, not just one laptop.
+- Added `face-attendance calibrate-liveness [--camera-index N] [--duration 20]`: runs a short live session, collects real motion/deformation samples using the exact same computation the liveness gate uses (via a permissive, non-gating `MicroMovementLivenessChecker`), and prints the observed range plus recommended `FA_LIVENESS_MAX_MOTION`/`FA_LIVENESS_MIN_DEFORMATION` values for that specific camera (peak-observed-motion + 30% margin; deformation floor tightened only if the camera proves quieter than the shipped default, never loosened without evidence).
+- New module `src/face_attendance/app/calibrate.py`; `run_liveness_calibration` takes an injectable `clock` callable so tests drive it deterministically instead of racing real wall-clock time against fakes.
+- `_require_models` in the CLI gained a `need_sface` flag so this command only requires the YuNet model (it doesn't need SFace embeddings).
+
+### Verified
+
+- `python -m unittest discover -s tests` (142 tests, all green)
+- CLI fails fast with a clear message when the YuNet model is missing, without touching the camera (confirmed in isolation: 0.05s, no hardware access).
+
+### Review
+
+- Clean: formalizes the exact manual process used throughout this session's liveness debugging (print raw values, compare live vs spoof, set thresholds from evidence) into a repeatable setup step for any new terminal.
+
 ## Manual Test Follow-up - Deformation Ceiling Removed (False-Reject on Natural Head Turns)
 
 Date: 2026-07-08

@@ -7,6 +7,7 @@ Rehearsal script proving the rubric items: recognition, secure logging, multi-fa
 - [ ] `python scripts/download_models.py` reports both models `verified`
 - [ ] `face-attendance init-db` prints the database path
 - [ ] `python -m unittest discover -s tests` is green
+- [ ] On a new terminal/camera: `face-attendance calibrate-liveness --duration 20` and apply any recommended `FA_LIVENESS_*` overrides before proceeding
 
 ## 1. Enrollment (embeddings only, no images)
 
