@@ -53,7 +53,6 @@ def build_components(settings: AppSettings) -> PipelineComponents:
         min_motion=settings.liveness_min_motion,
         max_motion=settings.liveness_max_motion,
         min_deformation=settings.liveness_min_deformation,
-        max_deformation=settings.liveness_max_deformation,
         max_gap_seconds=settings.liveness_max_gap_seconds,
     )
     attendance = AttendanceService(storage, cooldown_seconds=settings.cooldown_seconds)

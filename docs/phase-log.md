@@ -1,5 +1,42 @@
 # Phase Log
 
+## Manual Test Follow-up - Deformation Ceiling Removed (False-Reject on Natural Head Turns)
+
+Date: 2026-07-08
+
+### The problem
+
+The very next manual test after shipping the v2 band redesign found a false reject: a clean, isolated test with zero photo involved ("just move naturally like arriving at work") produced a liveness FAILURE.
+
+Two evaluations from that clean session:
+- Calm: `motion=0.0250, deform=0.0106` -> PASSED
+- Same person, natural head turn (no photo): `motion=0.0290, deform=0.0228` -> FAILED ("tilted rigid object")
+
+Motion barely moved (0.0250 -> 0.0290); deformation more than doubled (0.0106 -> 0.0228), crossing the v2 ceiling (0.020). Root cause: turning your head is *also* an out-of-plane rotation. The deformation metric only corrects for translation, scale, and in-plane rotation - it cannot distinguish a live person turning their head from a spoof photo being tilted, because both produce the same kind of uncorrected residual. The v2 ceiling, calibrated from a *calm, sitting-still* session, was never going to survive contact with normal human movement (turning to glance around, nodding) at a real entrance.
+
+### Investigation
+
+Replayed every real measured reading collected across all liveness test sessions so far (four separate manual test rounds) against both the motion and deformation signals:
+- **Motion** held a real, consistent gap in every session: live never exceeded ~0.11 (closest live pass was 0.1093), every clean isolated spoof test measured 0.1569 or higher (up to 4.24 for vigorous waving).
+- **Deformation** did not: live "passing" values crept up to 0.0195-0.0200 (right at the v2 ceiling) even during ordinary use, and spoof-attributed deformation readings from a mixed test session overlapped heavily with that same range - no safe margin, unlike motion.
+
+### The fix
+
+- `MicroMovementLivenessChecker`: deformation ceiling removed entirely; only the floor remains (`min_deformation`, unchanged at 0.003 from v2). Motion keeps its full two-sided band (`0.004`-`0.11`, unchanged - it was never the problem). `LIVENESS_METHOD` bumped to `micro-movement-v3`.
+- The floor alone still catches a photo moved with pure in-plane motion (translation/rotation only, no tilt) that might otherwise stay under the motion ceiling while never truly deforming.
+- `AppSettings.liveness_max_deformation` and its cross-field validator removed; `FA_LIVENESS_MAX_DEFORMATION` is no longer a recognized variable.
+- `tests/test_liveness.py`: added `test_natural_head_turn_passes_despite_elevated_deformation` (synthetic low-motion/high-deformation sequence, the exact case that just failed on real hardware) as a permanent regression guard; `hand_held_photo_sequence`'s parameters retuned so it still reliably exceeds the motion ceiling now that motion uses median (more outlier-robust) rather than mean.
+
+### Verified
+
+- `python -m unittest discover -s tests` (132 tests, all green)
+- Replayed all real measured readings from every prior session (calm live, clean spoof, mixed live+spoof, and this clean live-movement session) through the fixed logic directly: every live reading passes (including the one that previously false-rejected), both spoof readings still correctly fail.
+
+### Review
+
+- Clean: no change to motion's band, which has held up across every real session so far and was never implicated in this bug.
+- Honest: README now documents the full v1 -> v2 -> v3 history so the reasoning survives future recalibration, not just the current numbers.
+
 ## Manual Test Follow-up - Liveness Band Redesign (Blink Detection Investigated and Rejected)
 
 Date: 2026-07-08

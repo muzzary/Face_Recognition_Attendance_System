@@ -46,9 +46,7 @@ class AppSettingsTests(unittest.TestCase):
         settings = AppSettings.from_env(environ={})
 
         self.assertLess(settings.liveness_min_motion, settings.liveness_max_motion)
-        self.assertLess(
-            settings.liveness_min_deformation, settings.liveness_max_deformation
-        )
+        self.assertGreaterEqual(settings.liveness_min_deformation, 0.0)
 
     def test_inverted_liveness_motion_band_rejected(self) -> None:
         with self.assertRaises(SettingsError) as ctx:

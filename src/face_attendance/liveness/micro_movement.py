@@ -1,28 +1,35 @@
-"""Multi-frame liveness via micro-movement and non-rigidity analysis.
+"""Multi-frame liveness via micro-movement and rigidity analysis.
 
 Evidence is gathered across a window of frames per tracked identity, and two
-signals are checked against expected *bands* (not one-sided floors):
+signals are computed on facial landmarks, normalized by inter-ocular distance
+(resolution- and distance-independent):
 
-1. Motion presence — live heads are never pixel-still, but they also are not
-   constantly trembling. A window whose landmark centroid barely moves is a
-   mounted/still photo; a window that moves far more than a calm authenticating
-   face naturally does is a hand-held photo (a hand shakes more than a head
-   held still for a moment).
+1. Motion presence — checked against a *band*, not a one-sided floor. Live
+   heads are never pixel-still, but they also do not tremble constantly. A
+   window whose landmark centroid barely moves is a mounted/still photo; a
+   window that moves far more than a calm authenticating face naturally does
+   is a hand-held photo (a hand shakes more than a head held briefly still).
+   This band was set from real measured data (see docs/phase-log.md): a live
+   face's natural range - including normal head turns - sat inside it, a
+   hand-held photo spoof measured outside it.
+
 2. Non-rigid deformation — after removing translation, scale, and in-plane
-   rotation from each frame's landmarks, a rigid spoof leaves near-zero
-   residual movement in theory, but a hand-tremor-tilted rigid photo actually
-   produces *more* apparent residual than a live face's subtle expression
-   changes, because tilt (an out-of-plane rotation) is not corrected by this
-   in-plane-only normalization. So this is also a band, not a floor.
-
-Both bands were set from real measured data (see docs/phase-log.md), not
-guessed: a live face's natural range sits inside the band, a hand-held photo
-spoof measured outside it on both signals.
+   rotation from each frame's landmarks, only a *floor* is enforced (unlike
+   motion, this is not a band). An earlier version of this checker also
+   enforced a ceiling here, reasoning that a hand-tremor-tilted photo
+   produces more apparent residual than a live face's expression changes.
+   Real-hardware testing proved that ceiling wrong: turning your head is
+   *also* an out-of-plane rotation this in-plane-only correction cannot
+   remove, so natural head turns were being misclassified as spoofs. The
+   floor still catches a photo moved with pure in-plane motion (translation
+   and in-plane rotation only, no tilt), which the motion band alone would
+   not: such a spoof can be tuned to keep centroid motion modest, but stays
+   perfectly rigid, so deformation reads near zero.
 
 Known limitations (documented in the README):
 - A screen replaying a *video* of the employee produces non-rigid motion and
   is not caught by this method.
-- The bands are anchored to one real deployment's camera/lighting; very
+- The motion band is anchored to one real deployment's camera/lighting; very
   different setups may need recalibration via FA_LIVENESS_* settings.
 """
 
@@ -36,7 +43,7 @@ import numpy as np
 
 from face_attendance.contracts import DetectedFace, LivenessResult, LivenessStatus
 
-LIVENESS_METHOD = "micro-movement-v2"
+LIVENESS_METHOD = "micro-movement-v3"
 
 
 class LivenessError(RuntimeError):
@@ -82,7 +89,6 @@ class MicroMovementLivenessChecker:
         min_motion: float = 0.004,
         max_motion: float = 0.11,
         min_deformation: float = 0.003,
-        max_deformation: float = 0.020,
         max_gap_seconds: float = 2.0,
     ) -> None:
         if window_size < 3:
@@ -91,11 +97,11 @@ class MicroMovementLivenessChecker:
             raise ValueError("max_gap_seconds must be > 0")
         if not 0.0 <= min_motion < max_motion:
             raise ValueError("min_motion must be >= 0 and < max_motion")
-        if not 0.0 <= min_deformation < max_deformation:
-            raise ValueError("min_deformation must be >= 0 and < max_deformation")
+        if min_deformation < 0.0:
+            raise ValueError("min_deformation must be >= 0")
         self._window_size = window_size
         self._motion_band = _Band(min_motion, max_motion)
-        self._deformation_band = _Band(min_deformation, max_deformation)
+        self._min_deformation = min_deformation
         self._max_gap_seconds = max_gap_seconds
         self._windows: dict[str, deque[_Observation]] = {}
 
@@ -180,28 +186,23 @@ class MicroMovementLivenessChecker:
                 deformation=deformation,
             )
 
-        if not self._deformation_band.contains(deformation):
-            reason = (
-                "movement is rigid, face does not deform naturally "
-                "(possible mounted photo or screen spoof)"
-                if deformation < self._deformation_band.low
-                else "shape residual is larger than natural facial movement, "
-                "consistent with a tilted rigid object (possible hand-held photo)"
-            )
+        if deformation < self._min_deformation:
             return LivenessResult(
                 status=LivenessStatus.FAILED,
                 method=LIVENESS_METHOD,
                 frame_count=count,
-                confidence_score=_failure_confidence(self._deformation_band, deformation),
-                reason=reason,
+                confidence_score=_floor_failure_confidence(
+                    deformation, self._min_deformation
+                ),
+                reason=(
+                    "movement is rigid, face does not deform naturally "
+                    "(possible mounted photo or screen spoof)"
+                ),
                 motion=motion,
                 deformation=deformation,
             )
 
-        confidence = 0.5 + 0.5 * min(
-            self._motion_band.confidence_margin(motion),
-            self._deformation_band.confidence_margin(deformation),
-        )
+        confidence = 0.5 + 0.5 * self._motion_band.confidence_margin(motion)
         return LivenessResult(
             status=LivenessStatus.PASSED,
             method=LIVENESS_METHOD,
@@ -262,12 +263,17 @@ def _non_rigid_deformation(stacks: np.ndarray) -> float:
 
 
 def _failure_confidence(band: _Band, value: float) -> float:
-    """Low confidence-of-liveness score for failed checks, bounded to [0, 0.5)."""
+    """Low confidence-of-liveness score for a band violation, bounded to [0, 0.5)."""
 
     if value < band.low:
-        if band.low <= 0.0:
-            return 0.0
-        return max(0.0, min(0.49, 0.5 * value / band.low))
-    # value > band.high: confidence falls the further past the ceiling it is.
+        return _floor_failure_confidence(value, band.low)
     excess = (value - band.high) / band.high if band.high > 0.0 else 1.0
     return max(0.0, min(0.49, 0.49 - 0.1 * excess))
+
+
+def _floor_failure_confidence(value: float, floor: float) -> float:
+    """Low confidence-of-liveness score for a floor violation, bounded to [0, 0.5)."""
+
+    if floor <= 0.0:
+        return 0.0
+    return max(0.0, min(0.49, 0.5 * value / floor))

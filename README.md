@@ -66,7 +66,7 @@ All tunables are environment variables validated at startup (defaults in parenth
 | `FA_ENROLLMENT_MIN_FACE_SIZE` | min face box in px (`80`) |
 | `FA_LIVENESS_WINDOW_SIZE` | frames of liveness evidence (`16`) |
 | `FA_LIVENESS_MIN_MOTION` / `FA_LIVENESS_MAX_MOTION` | acceptable motion band, rel. to eye distance (`0.004` – `0.11`) |
-| `FA_LIVENESS_MIN_DEFORMATION` / `FA_LIVENESS_MAX_DEFORMATION` | acceptable non-rigidity band (`0.003` – `0.020`) |
+| `FA_LIVENESS_MIN_DEFORMATION` | non-rigidity floor only, no ceiling (`0.003`) |
 | `FA_LIVENESS_MAX_GAP_SECONDS` | track lost after this silence (`2.0`) |
 | `FA_COOLDOWN_SECONDS` | per-employee re-log cooldown (`60`) |
 | `FA_INDEX_REFRESH_SECONDS` | live gallery reload interval (`30`) |
@@ -86,21 +86,20 @@ With 1000 employees the *gallery* grows but the decision stays a single threshol
 
 **Clock-in/out semantics:** events toggle per employee (in → out → in) with a cooldown (`FA_COOLDOWN_SECONDS`, default 60 s) suppressing duplicates. An employee who lingers in front of the camera *longer than the cooldown* will toggle again (spurious clock-out); site the camera so people pass rather than loiter, or raise the cooldown for your deployment.
 
-## Liveness: What It Catches, What It Doesn't, and Why It's a Band
+## Liveness: What It Catches, What It Doesn't, and Why Only Motion Is a Band
 
 Liveness is multi-frame (`FA_LIVENESS_WINDOW_SIZE`, default 16 frames per identity) using two signals on facial landmarks, both normalized by inter-ocular distance (resolution- and distance-independent):
 
-1. **Motion presence** — live heads drift slightly but not wildly during calm authentication.
-2. **Non-rigid deformation** — after removing translation, scale, and in-plane rotation per frame, genuine facial movement (eyes, mouth) leaves a small residual.
+1. **Motion presence** — checked against an acceptable **band**, `FA_LIVENESS_MIN_MOTION` – `FA_LIVENESS_MAX_MOTION` (default `0.004` – `0.11`). Too little ⇒ mounted/still photo, rejected. Too much ⇒ hand-held photo, rejected (a trembling hand moves *more* than a calm, authenticating face — measured spoof motion was 0.1569–4.24, well above live's 0.0164–0.0848).
+2. **Non-rigid deformation** — checked against a **floor only**, `FA_LIVENESS_MIN_DEFORMATION` (default `0.003`). After removing translation, scale, and in-plane rotation per frame, genuine facial movement leaves a small residual; near-zero residual means the "face" never actually deforms — a rigid object held perfectly still or waved with pure in-plane motion.
 
-**Both signals are checked against an acceptable *band*, not a one-sided floor.** The first version of this checker only rejected values *below* a floor (the theory: a rigid/still photo produces low motion). Real-hardware testing disproved that for the realistic attack — a **hand-held** photo — and the actual measured data drove the redesign:
+**This went through two real-hardware iterations before landing here** — worth reading because it explains why deformation isn't a band:
 
-| Signal | Live face (measured range) | Hand-held photo spoof (measured) | Shipped band |
-|---|---|---|---|
-| motion | 0.0164 – 0.0848 | 0.1569, 0.1962 | 0.004 – 0.11 |
-| deformation | 0.0044 – 0.0152 | 0.0286, 0.0289 | 0.003 – 0.020 |
+- **v1 (floor only, both signals):** a live face's own deformation readings (0.0044–0.0152) straddled the floor (0.006), so the *same* person's live session flickered pass/fail every other evaluation.
+- **v2 (bands, both signals):** fixed the flicker by widening thresholds, but a hand-held spoof measured *higher* deformation (0.0286–0.0289) than live's own max (0.0152) — a ceiling on deformation could not admit live without also admitting that spoof. Shipped anyway with a ceiling, anchored to the measured data at the time.
+- **v3 (shipped):** the v2 deformation ceiling then rejected a real employee's *natural head turn* — turning your head is *also* an out-of-plane rotation the in-plane-only correction can't remove, so it reads the same as a tilted spoof. Confirmed on real hardware: calm live deformation 0.0106 → same person just turning their head naturally, 0.0228 (more than double), motion barely changed (0.0250 → 0.0290). Deformation's ceiling was removed entirely; the floor (unchanged from v1) still catches a rigid object held with zero deformation. Motion's band, which held up consistently and safely across every real test session collected, remains the primary two-sided gate.
 
-A hand tremor holding a phone moves and "deforms" (via uncorrected out-of-plane tilt) *more* than a calm live face does — the spoof scored higher than live on both signals, not lower. A pure floor could never separate these; either it lets the spoof through, or it's set so high it rejects the live face's own quieter moments too (which is exactly what the original floor-only design did — it flickered pass/fail on the *same* live session; see `docs/phase-log.md` for the full investigation). The band closes both gaps: too little movement ⇒ mounted/still photo, rejected; too much ⇒ hand-held photo, rejected; the natural range in between ⇒ passes.
+The full investigation, including every real measured reading, is in `docs/phase-log.md`.
 
 Attendance is **never** logged until liveness passes; an incomplete window is UNKNOWN, and UNKNOWN never logs. Every liveness message printed by `attend` includes the raw measured values, e.g. `EMP-001: movement is more erratic than a natural head... [motion=0.1962, deform=0.0286]` or a passing `CLOCK_IN: ... [motion=0.0848, deform=0.0152]` — compare these against the `FA_LIVENESS_*` band settings to recalibrate for a different camera/lighting setup.
 

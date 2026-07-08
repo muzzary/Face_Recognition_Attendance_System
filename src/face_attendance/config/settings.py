@@ -47,15 +47,18 @@ class AppSettings(BaseModel):
     enrollment_samples: int = Field(default=5, ge=1, le=20)
     enrollment_frame_gap: int = Field(default=15, ge=0)
 
-    # Liveness: acceptable [min, max] bands, not one-sided floors. A live
-    # face's natural range sits inside the band; a mounted static photo
-    # falls below it, a hand-held photo (tremor + tilt) falls above it.
-    # Defaults are anchored to real measured data - see docs/phase-log.md.
+    # Liveness. Motion is an acceptable [min, max] band: a live face's
+    # natural range (including normal head turns) sits inside it, a mounted
+    # static photo falls below it, a hand-held photo (tremor + tilt) falls
+    # above it. Deformation is a floor only - a ceiling was tried and proved
+    # wrong on real hardware (natural head turns are ALSO an out-of-plane
+    # rotation the in-plane-only correction can't remove, so it false-
+    # rejected live users). Defaults anchored to real measured data - see
+    # docs/phase-log.md.
     liveness_window_size: int = Field(default=16, ge=3)
     liveness_min_motion: float = Field(default=0.004, ge=0.0)
     liveness_max_motion: float = Field(default=0.11, gt=0.0)
     liveness_min_deformation: float = Field(default=0.003, ge=0.0)
-    liveness_max_deformation: float = Field(default=0.020, gt=0.0)
     liveness_max_gap_seconds: float = Field(default=2.0, gt=0.0)
 
     # Attendance
@@ -72,10 +75,6 @@ class AppSettings(BaseModel):
         if self.liveness_min_motion >= self.liveness_max_motion:
             raise ValueError(
                 "liveness_min_motion must be < liveness_max_motion"
-            )
-        if self.liveness_min_deformation >= self.liveness_max_deformation:
-            raise ValueError(
-                "liveness_min_deformation must be < liveness_max_deformation"
             )
         return self
 
