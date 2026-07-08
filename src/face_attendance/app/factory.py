@@ -51,7 +51,9 @@ def build_components(settings: AppSettings) -> PipelineComponents:
     liveness = MicroMovementLivenessChecker(
         window_size=settings.liveness_window_size,
         min_motion=settings.liveness_min_motion,
+        max_motion=settings.liveness_max_motion,
         min_deformation=settings.liveness_min_deformation,
+        max_deformation=settings.liveness_max_deformation,
         max_gap_seconds=settings.liveness_max_gap_seconds,
     )
     attendance = AttendanceService(storage, cooldown_seconds=settings.cooldown_seconds)

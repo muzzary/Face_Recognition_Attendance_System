@@ -1,5 +1,46 @@
 # Phase Log
 
+## Manual Test Follow-up - Liveness Band Redesign (Blink Detection Investigated and Rejected)
+
+Date: 2026-07-08
+
+### The problem
+
+Manual testing with real metric visibility (previous entry) surfaced two findings:
+1. A live face's own deformation readings (0.0044-0.0152) straddled the old floor threshold (0.006), so the SAME person's live session flickered between PASSED and FAILED roughly every other evaluation.
+2. A hand-held still-photo spoof measured motion=0.1962 and deformation=0.0286 - both **higher** than the live face's own maximum (0.0848 / 0.0152). A floor-only check cannot separate these: any threshold high enough to reject the spoof would also reject the live face's quieter moments; any threshold low enough to admit live lets the spoof straight through. The original design assumption ("spoof = too still") was backwards for a hand-held attack: a trembling hand moves and tilts more than a calm, authenticating face.
+
+### Blink detection: investigated, verified feasible, then rejected
+
+At the user's direction, pursued real blink detection as a stronger, independent liveness signal:
+- Confirmed `opencv_zoo` (the project's existing trusted model source) has no facial-landmark/eye-contour model.
+- Researched alternatives: MediaPipe (rejected - no official Python 3.13 support, this project's runtime) and InsightFace's `2d106det` landmark model (5MB, ONNX, MIT-licensed code / non-commercial-research-licensed weights - accepted by the user for this assignment context).
+- Downloaded `2d106det.onnx` from two independent HuggingFace mirrors with explicit user approval (byte-identical SHA256 across both, confirming authenticity) after a permission gate correctly blocked fetching it from agent-selected, previously-unvetted sources.
+- Reverse-derived the exact InsightFace preprocessing/postprocessing algorithm from their source (`landmark.py`, `face_align.py`) since their own README lacked sufficient detail; reimplemented the affine crop transform in pure numpy (no `scikit-image` dependency needed).
+- Empirically discovered which of the 106 output indices correspond to each eye by cross-referencing against YuNet's own trusted eye landmarks across 30 real webcam frames (100% consistent index sets across all samples - not guessed from an unverified scraped table).
+- Ran three real-camera calibration sessions (open-eyes, blink, and a deliberately-timed blink test with explicit "3...2...1...BLINK NOW" cues). Result: **inconclusive on two attempts, then outright failure on the third** - after ~6s into the final test, every subsequent frame lost face detection entirely.
+- Root-caused via a controlled A/B test: a camera-only `read()` loop delivered 90/90 fresh frames over 9s with zero duplicates; the combined YuNet+landmark106 pipeline periodically stalled for ~1.07s per frame and eventually stopped detecting faces at all for the remainder of a session. Conclusion: this development machine's webcam/driver cannot reliably sustain the added per-frame inference load blink detection requires. Shipping it would make the *existing* recognition pipeline less reliable, not just add a feature.
+- Decision (with user): abandon blink detection. `models/2d106det.onnx` removed (was never wired into the shipped `model_files.py`/CLI).
+
+### The shipped fix
+
+- `MicroMovementLivenessChecker` redesigned around `_Band(low, high)` for both motion and deformation, replacing the one-sided floors. New defaults anchored to the real measured live/spoof data above (see README table): motion `[0.004, 0.11]`, deformation `[0.003, 0.020]`.
+- Window size default raised 12 → 16 frames for more temporal averaging.
+- `_centroid_motion` switched mean → median; `_non_rigid_deformation` switched std → scaled MAD (median absolute deviation) - both more robust to a handful of noisy frames dominating the estimate.
+- New failure reasons distinguish "too little" (mounted/static photo) from "too much" (hand-held photo/erratic) on both signals.
+- `AppSettings` gained `liveness_max_motion`/`liveness_max_deformation` with a model-level validator rejecting an inverted band (`min >= max`) at startup.
+- Replayed all real measured live-session and spoof readings through the new band logic directly: every live reading now passes consistently (no more flicker); both spoof readings correctly fail.
+
+### Verified
+
+- `python -m unittest discover -s tests` (131 tests, all green)
+- Real data replay (not synthetic): 18/18 live readings PASS, 2/2 spoof readings FAIL under the new bands.
+
+### Review
+
+- Clean: no new dependency, no new per-frame model, no change to camera load - the fix stays entirely within the existing 5-point YuNet landmark data already being computed.
+- Honest: README documents the video-replay gap (unchanged) and now also the blink-detection investigation and why it was abandoned, plus the fact that bands are calibrated to one real setup and should be re-verified on a different camera.
+
 ## Manual Test Follow-up - Liveness Metric Visibility for Calibration
 
 Date: 2026-07-08

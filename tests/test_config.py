@@ -42,6 +42,21 @@ class AppSettingsTests(unittest.TestCase):
             AppSettings.from_env(environ={"FA_TYPO_FIELD": "1"})
         self.assertIn("FA_TYPO_FIELD", str(ctx.exception))
 
+    def test_liveness_defaults_form_valid_bands(self) -> None:
+        settings = AppSettings.from_env(environ={})
+
+        self.assertLess(settings.liveness_min_motion, settings.liveness_max_motion)
+        self.assertLess(
+            settings.liveness_min_deformation, settings.liveness_max_deformation
+        )
+
+    def test_inverted_liveness_motion_band_rejected(self) -> None:
+        with self.assertRaises(SettingsError) as ctx:
+            AppSettings.from_env(
+                environ={"FA_LIVENESS_MIN_MOTION": "0.5", "FA_LIVENESS_MAX_MOTION": "0.1"}
+            )
+        self.assertIn("liveness_min_motion", str(ctx.exception))
+
     def test_model_paths_derive_from_models_dir(self) -> None:
         settings = AppSettings.from_env(environ={"FA_MODELS_DIR": "custom_models"})
 

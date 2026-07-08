@@ -10,10 +10,11 @@ from face_attendance.contracts import (
     Point,
 )
 from face_attendance.liveness import LivenessError, MicroMovementLivenessChecker
-from fakes import make_frame
 
 DEFAULT_MIN_MOTION = 0.004
-DEFAULT_MIN_DEFORMATION = 0.006
+DEFAULT_MAX_MOTION = 0.11
+DEFAULT_MIN_DEFORMATION = 0.003
+DEFAULT_MAX_DEFORMATION = 0.020
 
 # Base face geometry: inter-ocular distance 60px.
 BASE_POINTS = np.array(
@@ -30,6 +31,8 @@ BASE_POINTS = np.array(
 def face_from_points(
     points: np.ndarray, frame_id: int, captured_at=None
 ) -> DetectedFace:
+    from fakes import make_frame
+
     frame = make_frame(
         frame_id=frame_id, width=320, height=240, captured_at=captured_at
     )
@@ -66,7 +69,9 @@ def static_sequence(count: int) -> list[np.ndarray]:
 
 
 def waved_photo_sequence(count: int) -> list[np.ndarray]:
-    """Rigid translation + slight rotation: a photo moved by hand."""
+    """Rigid translation + slight in-plane rotation: a photo moved by hand,
+    but without tilt - fully explained by translation+scale+rotation, so
+    the deformation residual stays near zero (below the band's floor)."""
 
     sequences = []
     for index in range(count):
@@ -77,6 +82,24 @@ def waved_photo_sequence(count: int) -> list[np.ndarray]:
         centroid = BASE_POINTS.mean(axis=0)
         rotated = (BASE_POINTS - centroid) @ rotation.T + centroid
         sequences.append(rotated + np.array([2.0 * index, 1.0 * index]))
+    return sequences
+
+
+def hand_held_photo_sequence(count: int, seed: int = 3) -> list[np.ndarray]:
+    """Larger tremor plus shear (simulating out-of-plane tilt not corrected
+    by in-plane-only normalization): matches real measured hand-held-photo
+    spoof data, which had HIGHER motion and deformation than a live face."""
+
+    rng = np.random.default_rng(seed)
+    sequences = []
+    position = np.zeros(2)
+    for index in range(count):
+        position = position + rng.normal(0.0, 4.0, size=2)
+        shear_amount = 0.18 * np.sin(index * 0.9)
+        shear = np.array([[1.0, shear_amount], [0.0, 1.0]])
+        centroid = BASE_POINTS.mean(axis=0)
+        sheared = (BASE_POINTS - centroid) @ shear.T + centroid
+        sequences.append(sheared + position)
     return sequences
 
 
@@ -110,18 +133,19 @@ class LivenessTests(unittest.TestCase):
         self.assertGreaterEqual(result.confidence_score, 0.5)
         # Raw metrics must be surfaced for real-world threshold calibration.
         assert result.motion is not None and result.deformation is not None
-        self.assertGreaterEqual(result.motion, DEFAULT_MIN_MOTION)
-        self.assertGreaterEqual(result.deformation, DEFAULT_MIN_DEFORMATION)
+        self.assertTrue(DEFAULT_MIN_MOTION <= result.motion <= DEFAULT_MAX_MOTION)
+        self.assertTrue(
+            DEFAULT_MIN_DEFORMATION <= result.deformation <= DEFAULT_MAX_DEFORMATION
+        )
 
-    def test_static_photo_fails(self) -> None:
+    def test_static_photo_fails_too_little_motion(self) -> None:
         result = run_sequence(self.checker, static_sequence(12))
 
         self.assertEqual(result.status, LivenessStatus.FAILED)
         assert result.reason is not None
-        self.assertIn("static photo", result.reason)
+        self.assertIn("mounted static photo", result.reason)
         assert result.motion is not None
         self.assertLess(result.motion, DEFAULT_MIN_MOTION)
-        self.assertIsNone(result.deformation)  # never reached that check
 
     def test_waved_photo_fails_as_rigid(self) -> None:
         result = run_sequence(self.checker, waved_photo_sequence(12))
@@ -132,6 +156,22 @@ class LivenessTests(unittest.TestCase):
         assert result.motion is not None and result.deformation is not None
         self.assertGreaterEqual(result.motion, DEFAULT_MIN_MOTION)
         self.assertLess(result.deformation, DEFAULT_MIN_DEFORMATION)
+
+    def test_hand_held_photo_fails_excessive_motion_or_deformation(self) -> None:
+        # Matches real measured spoof data: a hand-held photo showed HIGHER
+        # motion and deformation than a live face, not lower.
+        result = run_sequence(self.checker, hand_held_photo_sequence(12))
+
+        self.assertEqual(result.status, LivenessStatus.FAILED)
+        assert result.motion is not None and result.deformation is not None
+        assert result.reason is not None
+        too_much_motion = result.motion > DEFAULT_MAX_MOTION
+        too_much_deformation = result.deformation > DEFAULT_MAX_DEFORMATION
+        self.assertTrue(too_much_motion or too_much_deformation)
+        if too_much_motion:
+            self.assertIn("erratic", result.reason)
+        else:
+            self.assertIn("tilted rigid object", result.reason)
 
     def test_track_gap_resets_evidence(self) -> None:
         from datetime import datetime, timedelta, timezone
@@ -196,6 +236,8 @@ class LivenessTests(unittest.TestCase):
         self.assertEqual(result.frame_count, 1)
 
     def test_missing_landmarks_raise(self) -> None:
+        from fakes import make_frame
+
         frame = make_frame(width=320, height=240)
         face = DetectedFace(
             frame=frame.metadata,
@@ -209,6 +251,14 @@ class LivenessTests(unittest.TestCase):
     def test_small_window_rejected(self) -> None:
         with self.assertRaises(ValueError):
             MicroMovementLivenessChecker(window_size=2)
+
+    def test_invalid_motion_band_rejected(self) -> None:
+        with self.assertRaises(ValueError):
+            MicroMovementLivenessChecker(min_motion=0.1, max_motion=0.05)
+
+    def test_invalid_deformation_band_rejected(self) -> None:
+        with self.assertRaises(ValueError):
+            MicroMovementLivenessChecker(min_deformation=0.1, max_deformation=0.05)
 
 
 if __name__ == "__main__":

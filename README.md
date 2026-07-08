@@ -64,9 +64,9 @@ All tunables are environment variables validated at startup (defaults in parenth
 | `FA_DETECTION_SCORE_THRESHOLD` | YuNet face score floor (`0.8`) |
 | `FA_ENROLLMENT_SAMPLES` | samples per enrollment (`5`) |
 | `FA_ENROLLMENT_MIN_FACE_SIZE` | min face box in px (`80`) |
-| `FA_LIVENESS_WINDOW_SIZE` | frames of liveness evidence (`12`) |
-| `FA_LIVENESS_MIN_MOTION` | motion floor, rel. to eye distance (`0.004`) |
-| `FA_LIVENESS_MIN_DEFORMATION` | non-rigidity floor (`0.006`) |
+| `FA_LIVENESS_WINDOW_SIZE` | frames of liveness evidence (`16`) |
+| `FA_LIVENESS_MIN_MOTION` / `FA_LIVENESS_MAX_MOTION` | acceptable motion band, rel. to eye distance (`0.004` – `0.11`) |
+| `FA_LIVENESS_MIN_DEFORMATION` / `FA_LIVENESS_MAX_DEFORMATION` | acceptable non-rigidity band (`0.003` – `0.020`) |
 | `FA_LIVENESS_MAX_GAP_SECONDS` | track lost after this silence (`2.0`) |
 | `FA_COOLDOWN_SECONDS` | per-employee re-log cooldown (`60`) |
 | `FA_INDEX_REFRESH_SECONDS` | live gallery reload interval (`30`) |
@@ -86,20 +86,28 @@ With 1000 employees the *gallery* grows but the decision stays a single threshol
 
 **Clock-in/out semantics:** events toggle per employee (in → out → in) with a cooldown (`FA_COOLDOWN_SECONDS`, default 60 s) suppressing duplicates. An employee who lingers in front of the camera *longer than the cooldown* will toggle again (spurious clock-out); site the camera so people pass rather than loiter, or raise the cooldown for your deployment.
 
-## Liveness: What It Catches and What It Doesn't
+## Liveness: What It Catches, What It Doesn't, and Why It's a Band
 
-Liveness is multi-frame (`FA_LIVENESS_WINDOW_SIZE`, default 12 frames per identity) using two signals on facial landmarks, both normalized by inter-ocular distance (resolution- and distance-independent):
+Liveness is multi-frame (`FA_LIVENESS_WINDOW_SIZE`, default 16 frames per identity) using two signals on facial landmarks, both normalized by inter-ocular distance (resolution- and distance-independent):
 
-1. **Motion presence** — live heads always drift slightly. A pixel-still landmark window ⇒ *static photo* ⇒ rejected.
-2. **Non-rigid deformation** — after removing translation, scale, and in-plane rotation per frame, a hand-waved photo or a screen showing a still image leaves ~zero residual movement, while a live face keeps deforming ⇒ rigid motion ⇒ rejected.
+1. **Motion presence** — live heads drift slightly but not wildly during calm authentication.
+2. **Non-rigid deformation** — after removing translation, scale, and in-plane rotation per frame, genuine facial movement (eyes, mouth) leaves a small residual.
 
-Attendance is **never** logged until liveness passes; an incomplete window is UNKNOWN, and UNKNOWN never logs.
+**Both signals are checked against an acceptable *band*, not a one-sided floor.** The first version of this checker only rejected values *below* a floor (the theory: a rigid/still photo produces low motion). Real-hardware testing disproved that for the realistic attack — a **hand-held** photo — and the actual measured data drove the redesign:
 
-Every liveness message printed by `attend` now includes the raw measured values, e.g. `EMP-001: no natural head movement detected across frames (possible static photo) [motion=0.0012]` or a passing `CLOCK_IN: ... [motion=0.0150, deform=0.0200]` — compare these against `FA_LIVENESS_MIN_MOTION`/`FA_LIVENESS_MIN_DEFORMATION` to calibrate for your camera instead of guessing.
+| Signal | Live face (measured range) | Hand-held photo spoof (measured) | Shipped band |
+|---|---|---|---|
+| motion | 0.0164 – 0.0848 | 0.1569, 0.1962 | 0.004 – 0.11 |
+| deformation | 0.0044 – 0.0152 | 0.0286, 0.0289 | 0.003 – 0.020 |
+
+A hand tremor holding a phone moves and "deforms" (via uncorrected out-of-plane tilt) *more* than a calm live face does — the spoof scored higher than live on both signals, not lower. A pure floor could never separate these; either it lets the spoof through, or it's set so high it rejects the live face's own quieter moments too (which is exactly what the original floor-only design did — it flickered pass/fail on the *same* live session; see `docs/phase-log.md` for the full investigation). The band closes both gaps: too little movement ⇒ mounted/still photo, rejected; too much ⇒ hand-held photo, rejected; the natural range in between ⇒ passes.
+
+Attendance is **never** logged until liveness passes; an incomplete window is UNKNOWN, and UNKNOWN never logs. Every liveness message printed by `attend` includes the raw measured values, e.g. `EMP-001: movement is more erratic than a natural head... [motion=0.1962, deform=0.0286]` or a passing `CLOCK_IN: ... [motion=0.0848, deform=0.0152]` — compare these against the `FA_LIVENESS_*` band settings to recalibrate for a different camera/lighting setup.
 
 **Honest limitations:**
-- A screen **replaying a video** of the employee produces non-rigid motion and is *not* caught by this method. Defeating video replay requires texture/moiré analysis, depth sensing, or challenge-response — out of scope here and documented as the main residual risk.
-- Default thresholds are conservative; verify them against your camera with the demo checklist (`docs/demo-checklist.md`) and tune via `FA_LIVENESS_*` if needed.
+- A screen **replaying a video** of the employee produces non-rigid motion in the natural range and is *not* caught by this method. Defeating video replay requires texture/moiré analysis, depth sensing, or challenge-response — out of scope here.
+- **Blink detection was investigated and abandoned.** A real ONNX 106-point landmark model (InsightFace `2d106det`, non-commercial-research license) was downloaded, hash-verified, and its eye-region points were empirically mapped against this project's own YuNet detector on real camera frames. It worked in isolation (~14ms/frame). But running it alongside the existing detection pipeline pushed combined per-frame CPU load high enough that this project's development webcam periodically **stopped delivering frames entirely** (confirmed: a camera-only loop ran flawlessly for 9s with zero dropped frames; adding the extra model caused runs where the back half of a 9s session lost 100% of frames). Adding a feature that makes the camera less reliable is a worse trade than not having it. The bands above are the result of that investigation redirected into the achievable fix.
+- Bands are anchored to one real deployment's camera/lighting; a different setup should re-run the demo checklist and compare its own measured values against the defaults before trusting them.
 
 ## Concurrency & Backlog Strategy
 
