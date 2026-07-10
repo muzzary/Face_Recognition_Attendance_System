@@ -435,3 +435,97 @@ simply lags slightly when inference is behind.
 Implementation commit: pending (see git history)
 
 Push status: pending
+
+## Phase 6 - Cap Reports, Rate-Limit Login, and Make CI Verify the Web System
+
+Date: 2026-07-11
+
+Status: implemented, verified, reviewed, committed, pushed, awaiting manual checkpoint
+
+### Findings resolved
+
+Three independent medium findings, fixed together as one phase:
+
+- **Unbounded attendance report.** `GET /orgs/{org_id}/attendance` accepted an
+  optional `limit` and, when omitted, triggered an unbounded `fetchall()` in
+  `list_attendance_events`. A valid admin/manager could request an
+  arbitrarily large response and exhaust memory as history grows.
+- **No login rate limiting.** `POST /auth/login` ran the deliberately expensive
+  200k-iteration PBKDF2 check on every call with zero throttling, so an
+  unauthenticated caller could exhaust CPU/thread pool. The request model also
+  put no length bound on the `email`/`password` fields fed into the hasher.
+- **CI did not verify the completed web system.** The workflow installed `-e .`
+  (missing the `dev` extra that provides `httpx`, which FastAPI's `TestClient`
+  needs - so the API suite was silently failing in CI) and never set up Node,
+  ran the frontend tests, or built the frontend.
+
+### Implementation
+
+- Attendance route `limit` is now `Query(ge=1, le=500)` with a default of 100
+  instead of `None`/unbounded, so every call is server-capped regardless of
+  what the caller passes or omits. The route always passes a concrete int to
+  `list_attendance_events` (its `int | None` signature is unchanged - simpler,
+  touches less code). This is a deliberate cap-only fix; true keyset/cursor
+  pagination is the documented next step for very large histories.
+- Added `_LoginRateLimiter`, a stdlib-only (`threading.Lock` + dict) in-process,
+  per-client-IP fixed-window limiter. After 5 failed attempts within 60 seconds
+  the login route returns `429` with a `Retry-After` header *before* running the
+  password check; a successful login clears that IP's counter. Limiting is by
+  IP, not email, on purpose (email-keyed limiting would let an attacker lock out
+  a real user). A comment notes the single-instance limitation - a multi-instance
+  deployment would need shared state (e.g. Redis), out of scope here.
+- `LoginRequest` now bounds `email` to `max_length=254` and `password` to
+  `max_length=256` so a pathologically large payload cannot reach the hasher.
+- CI now installs `-e ".[dev]"` (with a comment explaining the httpx dependency)
+  and gains a separate `frontend` job that sets up Node 20 and runs
+  `npm ci`, `npm test -- --run`, and `npm run build` in `frontend/`.
+
+### Automated verification
+
+- New tests (4) in `tests/test_api.py`:
+  - the attendance `limit` is rejected above the 500 cap (`422`);
+  - login returns `429` with a `Retry-After` header after 5 failed attempts;
+  - login rejects oversized `email`/`password` fields (`422`);
+  - the existing positive/limit tests continue to pass with the new default.
+- Targeted API suite: 23 tests passed.
+- Full Python regression suite (`python -m unittest discover -s tests`, exactly
+  as CI runs it): 217 tests passed in 33.172 seconds.
+- CI change dry-run locally rather than guessed:
+  - `pip install -e ".[dev]"` resolves and installs httpx;
+  - `npm test -- --run` in `frontend/` -> 15 passed;
+  - `npm run build` in `frontend/` -> clean (tsc + vite build).
+
+### Self-review
+
+- Correctness: reviewed, clean. The limiter checks the block *before* recording
+  a failure, so a blocked IP records no further failures and the fixed window
+  expires naturally - there is no permanent lockout. A successful login resets
+  the counter. `request.client` being `None` falls back to a stable key.
+- Security: reviewed, clean for these findings. The expensive hash is skipped
+  once an IP is blocked; the report is always capped; oversized login payloads
+  are refused with `422` before hashing.
+- Concurrency: reviewed, clean. All limiter state mutation happens under a
+  single lock.
+- Efficiency: reviewed, clean. The cap replaces an unbounded scan with a
+  bounded, index-ordered `LIMIT`.
+- Dependencies: no new dependencies (stdlib `threading`/`time`, existing
+  `pydantic.Field`).
+
+### Follow-up noted (not acted on this pass)
+
+CI still has no linter/formatter step. Per this project's convention that
+linting-tool choice needs the owner's buy-in, this was intentionally left as a
+follow-up rather than added here.
+
+### Files changed
+
+- `src/face_attendance/api/main.py`
+- `.github/workflows/ci.yml`
+- `tests/test_api.py`
+- `CODEX_AUDIT.md`
+
+### Delivery
+
+Implementation commit: pending (see git history)
+
+Push status: pending

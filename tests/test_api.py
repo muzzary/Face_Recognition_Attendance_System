@@ -20,7 +20,7 @@ from face_attendance.api.auth import (
     hash_password,
 )
 from face_attendance.api.dependencies import get_storage
-from face_attendance.api.main import app
+from face_attendance.api.main import app, _login_rate_limiter
 from face_attendance.api.streaming import LatestJpegFrame
 from face_attendance.config import AppSettings
 from face_attendance.contracts import (
@@ -170,6 +170,32 @@ class ApiTests(unittest.TestCase):
 
     def test_attendance_limit_must_be_positive(self) -> None:
         response = self.client.get("/orgs/acme/attendance", params={"limit": 0})
+        self.assertEqual(response.status_code, 422)
+
+    def test_attendance_limit_is_capped(self) -> None:
+        # The server hard-caps limit at 500 so no caller can request an
+        # unbounded response, however large the history grows.
+        response = self.client.get("/orgs/acme/attendance", params={"limit": 501})
+        self.assertEqual(response.status_code, 422)
+
+    def test_login_is_rate_limited_after_repeated_failures(self) -> None:
+        # The limiter counts failed attempts for the TestClient's client IP;
+        # reset it afterwards so it does not leak into other tests' logins.
+        self.addCleanup(lambda: _login_rate_limiter.reset("testclient"))
+        bad = {"email": "admin@acme.test", "password": "wrong"}
+        for _ in range(5):  # the configured failure threshold
+            self.assertEqual(
+                self.client.post("/auth/login", json=bad).status_code, 401
+            )
+        blocked = self.client.post("/auth/login", json=bad)
+        self.assertEqual(blocked.status_code, 429)
+        self.assertIn("Retry-After", blocked.headers)
+
+    def test_login_rejects_oversized_fields(self) -> None:
+        response = self.client.post(
+            "/auth/login",
+            json={"email": "a" * 300, "password": "b" * 300},
+        )
         self.assertEqual(response.status_code, 422)
 
     def test_tenant_isolation_across_all_routes(self) -> None:

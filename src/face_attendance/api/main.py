@@ -17,13 +17,15 @@ single employee returns 404.
 from __future__ import annotations
 
 import logging
+import threading
+import time
 from contextlib import asynccontextmanager
 from typing import Annotated
 
 from fastapi import Depends, FastAPI, HTTPException, Query, Request, Response
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import StreamingResponse
-from pydantic import BaseModel
+from pydantic import BaseModel, Field
 
 from face_attendance.api.auth import (
     CurrentUserDep,
@@ -92,10 +94,66 @@ app.add_middleware(
 
 StorageDep = Annotated[AttendanceStorage, Depends(get_storage)]
 
+# How many failed logins from one client IP are tolerated before the expensive
+# password check is short-circuited, and the window those failures are counted
+# over.
+_LOGIN_MAX_FAILURES = 5
+_LOGIN_WINDOW_SECONDS = 60.0
+
+
+class _LoginRateLimiter:
+    """In-process, per-IP failed-login limiter guarding the expensive PBKDF2
+    check on ``POST /auth/login`` against unauthenticated CPU exhaustion.
+
+    Fixed-window count of *failed* attempts per client IP; a successful login
+    clears that IP's counter. State lives in this process only, which is
+    acceptable for the current single-instance deployment - a multi-instance
+    deployment would need shared state (e.g. Redis), which is out of scope here.
+    """
+
+    def __init__(self, max_failures: int, window_seconds: float) -> None:
+        self._max_failures = max_failures
+        self._window = window_seconds
+        self._failures: dict[str, list[float]] = {}
+        self._lock = threading.Lock()
+
+    def retry_after(self, client_ip: str) -> int | None:
+        """Seconds the IP must wait if it is currently blocked, else ``None``."""
+
+        now = time.monotonic()
+        with self._lock:
+            recent = self._recent_locked(client_ip, now)
+            if len(recent) >= self._max_failures:
+                return max(1, int(self._window - (now - recent[0])) + 1)
+            return None
+
+    def record_failure(self, client_ip: str) -> None:
+        now = time.monotonic()
+        with self._lock:
+            recent = self._recent_locked(client_ip, now)
+            recent.append(now)
+            self._failures[client_ip] = recent
+
+    def reset(self, client_ip: str) -> None:
+        with self._lock:
+            self._failures.pop(client_ip, None)
+
+    def _recent_locked(self, client_ip: str, now: float) -> list[float]:
+        """Drop timestamps older than the window; caller holds the lock."""
+
+        recent = [t for t in self._failures.get(client_ip, []) if now - t < self._window]
+        self._failures[client_ip] = recent
+        return recent
+
+
+_login_rate_limiter = _LoginRateLimiter(_LOGIN_MAX_FAILURES, _LOGIN_WINDOW_SECONDS)
+
 
 class LoginRequest(BaseModel):
-    email: str
-    password: str
+    # Field lengths are bounded so a caller cannot push a pathologically large
+    # payload into the password hasher. 254 is the practical email-address cap.
+    email: str = Field(max_length=254)
+    password: str = Field(max_length=256)
 
 
 class TokenResponse(BaseModel):
@@ -117,13 +175,34 @@ def health() -> dict[str, str]:
 
 @app.post("/auth/login", response_model=TokenResponse)
 def login(
-    body: LoginRequest, storage: StorageDep, settings: SettingsDep
+    body: LoginRequest,
+    request: Request,
+    storage: StorageDep,
+    settings: SettingsDep,
 ) -> TokenResponse:
-    """Exchange email/password for a bearer token; 401 on any bad credential."""
+    """Exchange email/password for a bearer token; 401 on any bad credential.
+
+    Rate-limited per client IP: after too many failed attempts in a short
+    window the expensive PBKDF2 check is skipped and 429 is returned, so an
+    unauthenticated caller cannot exhaust CPU. Limiting is by IP, not by email,
+    on purpose - keying on email would let an attacker lock out a real user.
+    A successful login clears the caller's failure counter.
+    """
+
+    client_ip = request.client.host if request.client else "unknown"
+    retry_after = _login_rate_limiter.retry_after(client_ip)
+    if retry_after is not None:
+        raise HTTPException(
+            status_code=429,
+            detail="too many failed login attempts; try again later",
+            headers={"Retry-After": str(retry_after)},
+        )
 
     user = authenticate_user(storage, body.email, body.password)
     if user is None:
+        _login_rate_limiter.record_failure(client_ip)
         raise HTTPException(status_code=401, detail="invalid email or password")
+    _login_rate_limiter.reset(client_ip)
     token = create_access_token(user, require_jwt_secret(settings))
     return TokenResponse(access_token=token)
 
@@ -168,10 +247,17 @@ def list_attendance(
     storage: StorageDep,
     user: CurrentUserDep,
     employee_id: Annotated[str | None, Query()] = None,
-    limit: Annotated[int | None, Query(ge=1)] = None,
+    limit: Annotated[int, Query(ge=1, le=500)] = 100,
 ) -> list[AttendanceEvent]:
     """Attendance events for an org, optionally filtered by employee and capped
     to the newest ``limit`` (mirrors ``list_attendance_events``).
+
+    ``limit`` is always a concrete, server-bounded value: it defaults to 100 and
+    is hard-capped at 500 regardless of what the caller passes or omits, so a
+    single request can never trigger an unbounded ``fetchall()`` as attendance
+    history grows. This is a deliberate cap-only fix; true keyset/cursor
+    pagination would be the next step if reports need to page through very large
+    histories.
 
     An employee is silently scoped to their own events: they cannot request a
     different employee's events (403) nor pull the whole org by omitting the
