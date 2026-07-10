@@ -19,7 +19,7 @@ from face_attendance.contracts import (
 )
 
 
-SCHEMA_VERSION = 4
+SCHEMA_VERSION = 5
 
 # The v2 -> v3 migration produces exactly the org-scoping schema (no users
 # table); it stamps this fixed version, not the current SCHEMA_VERSION. The
@@ -58,6 +58,20 @@ def initialize_database(database_path: str | Path) -> None:
     try:
         connection = sqlite3.connect(path)
         connection.execute("PRAGMA foreign_keys = ON")
+        employee_columns = connection.execute(
+            "PRAGMA table_info(employees)"
+        ).fetchall()
+        if employee_columns and not _has_composite_employee_key(employee_columns):
+            if not any(str(row[1]) == "org_id" for row in employee_columns):
+                connection.close()
+                connection = None
+                migrate_to_org_scoping(path)
+                initialize_database(path)
+                return
+            connection.close()
+            connection = None
+            migrate_to_tenant_integrity(path)
+            return
         connection.executescript(SCHEMA_SQL)
         connection.execute(
             "INSERT OR IGNORE INTO organizations (org_id, name, created_at) "
@@ -68,6 +82,115 @@ def initialize_database(database_path: str | Path) -> None:
         connection.commit()
     except sqlite3.Error as exc:
         raise StorageError(f"failed to initialize database at {path}") from exc
+    finally:
+        if connection is not None:
+            connection.close()
+
+
+def migrate_to_tenant_integrity(database_path: str | Path) -> None:
+    """Upgrade an org-scoped v3/v4 database to tenant-safe schema v5.
+
+    Earlier schemas stored ``org_id`` on every row but referenced employees by
+    ``employee_id`` alone. That allowed a child row tagged for one organization
+    to reference an employee in another. This migration rebuilds the four
+    tenant-related tables around the composite identity ``(org_id,
+    employee_id)`` and refuses to commit if existing data violates it.
+    """
+
+    path = Path(database_path)
+    connection: sqlite3.Connection | None = None
+    try:
+        connection = sqlite3.connect(path)
+        connection.isolation_level = None
+        employee_columns = connection.execute(
+            "PRAGMA table_info(employees)"
+        ).fetchall()
+        if not employee_columns:
+            raise StorageError(f"no employees table at {path}; nothing to migrate")
+        if not any(str(row[1]) == "org_id" for row in employee_columns):
+            raise StorageError(
+                f"database at {path} is not org-scoped; run migrate_to_org_scoping first"
+            )
+        if _has_composite_employee_key(employee_columns):
+            raise StorageError(f"database at {path} already enforces tenant integrity")
+
+        has_users = connection.execute(
+            "SELECT 1 FROM sqlite_master WHERE type = 'table' AND name = 'users'"
+        ).fetchone() is not None
+
+        connection.execute("PRAGMA foreign_keys = OFF")
+        connection.execute("BEGIN")
+        if has_users:
+            connection.execute("ALTER TABLE users RENAME TO _users_v4")
+        connection.execute(
+            "ALTER TABLE attendance_events RENAME TO _attendance_events_v4"
+        )
+        connection.execute(
+            "ALTER TABLE face_embeddings RENAME TO _face_embeddings_v4"
+        )
+        connection.execute("ALTER TABLE employees RENAME TO _employees_v4")
+
+        connection.execute(_EMPLOYEES_TABLE)
+        connection.execute(_FACE_EMBEDDINGS_TABLE)
+        connection.execute(_ATTENDANCE_EVENTS_TABLE)
+        connection.execute(_USERS_TABLE)
+
+        connection.execute(
+            "INSERT INTO employees "
+            "(org_id, employee_id, full_name, is_active, created_at) "
+            "SELECT org_id, employee_id, full_name, is_active, created_at "
+            "FROM _employees_v4"
+        )
+        connection.execute(
+            "INSERT INTO face_embeddings "
+            "(embedding_id, org_id, employee_id, model_name, dimensions, "
+            "vector_json, created_at) "
+            "SELECT embedding_id, org_id, employee_id, model_name, dimensions, "
+            "vector_json, created_at FROM _face_embeddings_v4"
+        )
+        connection.execute(
+            "INSERT INTO attendance_events "
+            "(attendance_event_id, org_id, employee_id, occurred_at, event_type, "
+            "confidence_score, match_distance) "
+            "SELECT attendance_event_id, org_id, employee_id, occurred_at, "
+            "event_type, confidence_score, match_distance "
+            "FROM _attendance_events_v4"
+        )
+        if has_users:
+            connection.execute(
+                "INSERT INTO users "
+                "(user_id, org_id, role, password_hash, employee_id, created_at) "
+                "SELECT user_id, org_id, role, password_hash, employee_id, created_at "
+                "FROM _users_v4"
+            )
+
+        if has_users:
+            connection.execute("DROP TABLE _users_v4")
+        connection.execute("DROP TABLE _attendance_events_v4")
+        connection.execute("DROP TABLE _face_embeddings_v4")
+        connection.execute("DROP TABLE _employees_v4")
+        for statement in _INDEX_STATEMENTS:
+            connection.execute(statement)
+
+        violations = connection.execute("PRAGMA foreign_key_check").fetchall()
+        if violations:
+            raise StorageError(
+                f"tenant-integrity migration found cross-org relationships: {violations}"
+            )
+        connection.execute(f"PRAGMA user_version = {SCHEMA_VERSION}")
+        connection.execute("COMMIT")
+        connection.execute("PRAGMA foreign_keys = ON")
+    except sqlite3.Error as exc:
+        if connection is not None:
+            connection.rollback()
+        raise StorageError(
+            f"failed to migrate tenant integrity at {path}; existing data may "
+            "contain cross-org relationships"
+        ) from exc
+    except StorageError:
+        if connection is not None:
+            connection.rollback()
+        raise
     finally:
         if connection is not None:
             connection.close()
@@ -348,7 +471,8 @@ class AttendanceStorage:
                 """
                 SELECT e.employee_id, f.org_id, f.model_name, f.dimensions, f.vector_json
                 FROM face_embeddings AS f
-                INNER JOIN employees AS e ON e.employee_id = f.employee_id
+                INNER JOIN employees AS e
+                    ON e.org_id = f.org_id AND e.employee_id = f.employee_id
                 WHERE e.is_active = 1 AND e.org_id = ?
                 ORDER BY e.employee_id, f.embedding_id
                 """,
@@ -568,12 +692,12 @@ CREATE TABLE IF NOT EXISTS organizations (
 
 _EMPLOYEES_TABLE = """
 CREATE TABLE IF NOT EXISTS employees (
-    employee_id TEXT PRIMARY KEY,
+    org_id TEXT NOT NULL REFERENCES organizations(org_id),
+    employee_id TEXT NOT NULL,
     full_name TEXT NOT NULL,
     is_active INTEGER NOT NULL CHECK (is_active IN (0, 1)),
     created_at TEXT NOT NULL,
-    org_id TEXT NOT NULL REFERENCES organizations(org_id),
-    UNIQUE (org_id, employee_id)
+    PRIMARY KEY (org_id, employee_id)
 );
 """
 
@@ -586,7 +710,8 @@ CREATE TABLE IF NOT EXISTS face_embeddings (
     vector_json TEXT NOT NULL,
     created_at TEXT NOT NULL DEFAULT (strftime('%Y-%m-%dT%H:%M:%fZ', 'now')),
     org_id TEXT NOT NULL REFERENCES organizations(org_id),
-    FOREIGN KEY (employee_id) REFERENCES employees(employee_id) ON DELETE CASCADE
+    FOREIGN KEY (org_id, employee_id)
+        REFERENCES employees(org_id, employee_id) ON DELETE CASCADE
 );
 """
 
@@ -599,7 +724,8 @@ CREATE TABLE IF NOT EXISTS attendance_events (
     confidence_score REAL NOT NULL CHECK (confidence_score >= 0.0 AND confidence_score <= 1.0),
     match_distance REAL NOT NULL CHECK (match_distance >= 0.0),
     org_id TEXT NOT NULL REFERENCES organizations(org_id),
-    FOREIGN KEY (employee_id) REFERENCES employees(employee_id) ON DELETE RESTRICT
+    FOREIGN KEY (org_id, employee_id)
+        REFERENCES employees(org_id, employee_id) ON DELETE RESTRICT
 );
 """
 
@@ -612,8 +738,10 @@ CREATE TABLE IF NOT EXISTS users (
     org_id TEXT NOT NULL REFERENCES organizations(org_id),
     role TEXT NOT NULL CHECK (role IN ('admin', 'manager', 'employee')),
     password_hash TEXT NOT NULL,
-    employee_id TEXT REFERENCES employees(employee_id),
-    created_at TEXT NOT NULL
+    employee_id TEXT,
+    created_at TEXT NOT NULL,
+    FOREIGN KEY (org_id, employee_id)
+        REFERENCES employees(org_id, employee_id)
 );
 """
 
@@ -622,10 +750,9 @@ CREATE TABLE IF NOT EXISTS users (
 # every table for tenant-scoped reports and gallery loads.
 _INDEX_STATEMENTS = (
     "CREATE INDEX IF NOT EXISTS idx_attendance_employee_time "
-    "ON attendance_events(employee_id, occurred_at)",
+    "ON attendance_events(org_id, employee_id, occurred_at)",
     "CREATE INDEX IF NOT EXISTS idx_embeddings_employee "
-    "ON face_embeddings(employee_id)",
-    "CREATE INDEX IF NOT EXISTS idx_employees_org ON employees(org_id)",
+    "ON face_embeddings(org_id, employee_id)",
     "CREATE INDEX IF NOT EXISTS idx_embeddings_org ON face_embeddings(org_id)",
     "CREATE INDEX IF NOT EXISTS idx_attendance_org ON attendance_events(org_id)",
 )
@@ -640,3 +767,12 @@ SCHEMA_SQL = (
     + ";\n".join(_INDEX_STATEMENTS)
     + ";\n"
 )
+
+
+def _has_composite_employee_key(columns: list[sqlite3.Row] | list[tuple]) -> bool:
+    primary_key = {
+        str(row[1]): int(row[5])
+        for row in columns
+        if int(row[5]) > 0
+    }
+    return primary_key == {"org_id": 1, "employee_id": 2}

@@ -8,6 +8,7 @@ from face_attendance.storage.database import (
     StorageError,
     initialize_database,
     migrate_to_org_scoping,
+    migrate_to_tenant_integrity,
 )
 
 __all__ = [
@@ -17,4 +18,5 @@ __all__ = [
     "StorageError",
     "initialize_database",
     "migrate_to_org_scoping",
+    "migrate_to_tenant_integrity",
 ]
