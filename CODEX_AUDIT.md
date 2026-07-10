@@ -74,3 +74,70 @@ same employee ID.
 Implementation commit: `546d6c6 Enforce tenant integrity in SQLite`
 
 Push status: pushed to `origin/main`
+
+## Phase 2 - Bind the Camera to Its Configured Organization
+
+Date: 2026-07-11
+
+Status: implemented, verified, reviewed, ready for manual checkpoint
+
+### Finding resolved
+
+The API process owns one physical camera and one recognition pipeline, but the
+stream route previously served that same global feed for any organization whose
+admin or manager requested its own tenant-qualified URL. Recognition and
+attendance writes were already built from `FA_ORG_ID`; the HTTP boundary did not
+enforce the same ownership.
+
+### Implementation
+
+- Added the configured organization as an explicit `CameraStreamer` property.
+- Required the stream route's organization to equal `FA_ORG_ID`.
+- Kept authorization ordering defensive: token/URL tenant matching and role
+  checks happen first, camera ownership next, and availability last.
+- An authenticated admin or manager from an unassigned tenant now always gets
+  `403`, regardless of whether the physical camera is online.
+- The configured tenant keeps the existing `503` behavior when its camera is
+  unavailable and the normal MJPEG response when it is running.
+
+### Automated verification
+
+- API route suite: 17 tests passed before the corrected streaming invocation.
+- Streaming module suite: 9 tests passed.
+- Full Python regression suite: 204 tests passed in 48.521 seconds.
+- New tests prove:
+  - a valid admin from another tenant cannot view the process camera;
+  - an unassigned tenant cannot use response differences to probe camera
+    availability;
+  - the streamer reports the organization owning its recognition pipeline.
+
+### Self-review
+
+- Correctness: reviewed, clean. The route and recognition pipeline use the same
+  validated `AppSettings.org_id` source.
+- Security: reviewed, clean for this finding. Cross-tenant authorization fails
+  before camera state is inspected.
+- Error handling: reviewed, clean. Existing role, unavailable-camera, and
+  authenticated-stream behavior remains covered.
+- Efficiency: reviewed, clean. The check is an in-memory string comparison and
+  adds no camera, database, or inference work.
+- Dependencies: no dependency changes.
+
+### Operational checkpoint
+
+The process must be started with the organization that physically owns its
+camera. For the seeded Acme dashboard, set `FA_ORG_ID=acme` before starting the
+API. Leaving the default organization configured will intentionally deny the
+Acme stream.
+
+### Files changed
+
+- `src/face_attendance/api/main.py`
+- `src/face_attendance/api/streaming.py`
+- `tests/test_api.py`
+- `tests/test_streaming.py`
+- `CODEX_AUDIT.md`
+
+### Delivery
+
+Planned commit message: `Bind camera stream to configured tenant`

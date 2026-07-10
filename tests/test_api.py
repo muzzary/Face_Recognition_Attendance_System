@@ -212,7 +212,9 @@ class StreamRouteTests(unittest.TestCase):
     """Auth/RBAC/availability for GET /orgs/{org_id}/stream (no camera needed)."""
 
     def setUp(self) -> None:
-        settings = AppSettings.from_env(environ={"FA_JWT_SECRET": SECRET})
+        settings = AppSettings.from_env(
+            environ={"FA_JWT_SECRET": SECRET, "FA_ORG_ID": "acme"}
+        )
         app.dependency_overrides[get_settings] = lambda: settings
         self.addCleanup(app.dependency_overrides.clear)
         self.client = TestClient(app)
@@ -242,6 +244,25 @@ class StreamRouteTests(unittest.TestCase):
         app.state.streamer = _FakeStreamer(available=True)
         header = {"Authorization": f"Bearer {self._token(UserRole.ADMIN)}"}
         response = self.client.get("/orgs/globex/stream", headers=header)
+        self.assertEqual(response.status_code, 403)
+
+    def test_other_tenant_cannot_view_the_process_camera(self) -> None:
+        app.state.streamer = _FakeStreamer(available=True)
+        token = self._token(UserRole.ADMIN, org="globex")
+
+        response = self.client.get(f"/orgs/globex/stream?token={token}")
+
+        self.assertEqual(response.status_code, 403)
+        self.assertEqual(
+            response.json()["detail"],
+            "live camera is not assigned to this organization",
+        )
+
+    def test_unassigned_tenant_cannot_probe_camera_availability(self) -> None:
+        token = self._token(UserRole.MANAGER, org="globex")
+
+        response = self.client.get(f"/orgs/globex/stream?token={token}")
+
         self.assertEqual(response.status_code, 403)
 
     def test_employee_is_forbidden(self) -> None:

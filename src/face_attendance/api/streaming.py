@@ -160,6 +160,12 @@ class CameraStreamer:
 
         return self._thread is not None and self._thread.is_alive()
 
+    @property
+    def org_id(self) -> str:
+        """Organization whose gallery and attendance writer this camera uses."""
+
+        return self._settings.org_id
+
     def start(self) -> None:
         """Open the camera and run the recognition loop on a background thread."""
 

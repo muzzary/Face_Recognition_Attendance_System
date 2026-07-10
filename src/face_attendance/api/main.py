@@ -184,7 +184,7 @@ def list_attendance(
 
 @app.get("/orgs/{org_id}/stream")
 def stream_camera(
-    org_id: str, request: Request, user: StreamUserDep
+    org_id: str, request: Request, user: StreamUserDep, settings: SettingsDep
 ) -> StreamingResponse:
     """Live annotated MJPEG feed from this org's single camera.
 
@@ -199,6 +199,14 @@ def stream_camera(
     if user.role == UserRole.EMPLOYEE:
         raise HTTPException(
             status_code=403, detail="employees may not view the live feed"
+        )
+    # One API process owns one physical camera and one recognition pipeline.
+    # That pipeline is built for FA_ORG_ID, so no other tenant may receive its
+    # frames even when that tenant has a valid admin/manager token.
+    if org_id != settings.org_id:
+        raise HTTPException(
+            status_code=403,
+            detail="live camera is not assigned to this organization",
         )
     streamer = request.app.state.streamer
     if streamer is None or not streamer.available:

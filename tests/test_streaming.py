@@ -174,6 +174,11 @@ class StreamLoopTests(unittest.TestCase):
 
 
 class CameraStreamerTests(unittest.TestCase):
+    def test_reports_the_org_owning_its_pipeline(self) -> None:
+        settings = AppSettings.from_env(environ={"FA_ORG_ID": "acme"})
+
+        self.assertEqual(CameraStreamer(settings).org_id, "acme")
+
     def test_start_fails_loud_and_stays_unavailable_without_models(self) -> None:
         # An empty models dir stands in for "no camera path available" (dev/CI):
         # start() raises before any hardware is touched and the feed reports
