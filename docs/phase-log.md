@@ -1,5 +1,32 @@
 # Phase Log
 
+## Web Arc Phase 6 - Role-Appropriate Dashboards
+
+Date: 2026-07-10
+
+### Goal
+
+Sixth phase of the 7-phase web/multi-tenant arc. Turn the single generic Phase 4/5 screen into real, role-appropriate dashboard views with simple professional styling, branching purely off the JWT `role` claim. Scoped to frontend UX only - no new backend endpoints, no camera work (Phase 7).
+
+### What changed
+
+- **`frontend/src/App.tsx`**: client-side `decodeToken` reads the JWT payload (base64url, padding-restored) purely to branch the UI - documented as UX-only, not security (the API enforces real authorization). Admin/manager get an identical full-org view (roster with active/inactive status badges + an org-wide attendance report with a client-side filter-by-employee dropdown). The employee role gets a self-service view that never calls the roster route (the API 403s it) and shows only their own attendance plus client-derived stats (days present, last clock-in, last clock-out) computed from the events `/attendance` already scopes to them. Shared `AttendanceTable`/`lastEventTime` helpers; per-view loading/error/empty states; a header bar with org, email, role pill, and sign-out. An undecodable/stale token is dropped so the app lands cleanly on the login form.
+- **`frontend/src/App.css` (new)**: single plain stylesheet (no UI kit, no new deps) - CSS-variable color scheme, header/nav bar, cards, tables, status/role badges, stat tiles, login card, and state text.
+- **`frontend/src/App.test.tsx`**: reworked to decodable per-role tokens - admin renders roster + report; employee never requests `/employees` and renders only own attendance + derives days-present; login renders the role-appropriate view; logout clears the token and returns to the login form; plus Bearer-header, API-error, and login-error states.
+- **Docs**: `frontend/README.md` refreshed from "Phase 4 skeleton" to the role-based dashboard, with per-role dev logins.
+
+### Verified
+
+- **Frontend build:** `npm run build` (tsc + vite) clean, no TS errors.
+- **Frontend tests:** `npm test` -> **8 passed** (`vitest run`) covering the role-branch, no-roster-for-employee, derived stats, login, and logout cases.
+- **Python suite:** `python -m unittest discover -s tests` -> **185 tests OK** (Python untouched this phase).
+- **End-to-end (uvicorn + curl, scratch DB, `FA_JWT_SECRET` set):** employee login 200; token payload decodes to exactly `{sub,org_id,role,employee_id,exp}` (the shape the UI branches on); employee `/attendance` auto-scoped to EMP-001 only (2 events, clock_in/clock_out); employee roster 403; admin login role=admin, roster returns 3.
+- **Not verified (owed):** visual browser render - no browser automation this session, same manual checkpoint convention as prior phases.
+
+### Review
+
+- Reviewed, clean. Token decode is UX-only and fails safe to the login form; `AttendanceTable`/`lastEventTime` are shared to avoid duplication; the employee view issues no roster call; loading/error/empty states are handled per view.
+
 ## Web Arc Phase 5 - Authentication + Role-Based Access Control
 
 Date: 2026-07-10

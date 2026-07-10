@@ -1,9 +1,19 @@
-# Face Attendance Frontend (Phase 4 skeleton)
+# Face Attendance Frontend
 
-A thin React + TypeScript + Vite single-page app that reads the roster and
-recent attendance from the FastAPI backend and renders them as plain HTML
-tables. No auth, no styling, no routing yet - this is a walking skeleton proving
-browser -> API -> SQLite works end to end.
+A React + TypeScript + Vite single-page app with role-appropriate dashboards
+over the FastAPI backend. You sign in, and the view is chosen from the JWT
+`role` claim (decoded client-side purely for UX branching - the API enforces the
+real authorization):
+
+- **Admin / manager** (identical scope): the full employee roster with
+  active/inactive status, plus an org-wide attendance report with a
+  filter-by-employee dropdown.
+- **Employee** (self-service): only their own attendance history plus simple
+  derived stats (days present, last clock-in/out) - the roster route is never
+  called for this role (the API 403s it).
+
+Styling is a single plain stylesheet (`src/App.css`) - no UI kit, no extra
+dependencies.
 
 ## Prerequisites
 
@@ -17,7 +27,17 @@ uvicorn face_attendance.api.main:app --reload   # serves http://127.0.0.1:8000
 ```
 
 The org id is hardcoded to `acme` at the top of `src/App.tsx` (matching the seed
-script). CORS for `http://localhost:5173` is already enabled on the API.
+script). CORS for `http://localhost:5173` is already enabled on the API. The API
+also needs `FA_JWT_SECRET` set to issue/verify tokens.
+
+Sign in with the seeded dev logins (all password `devpassword123`) to see each
+view:
+
+| Login              | Role     | View                                |
+| ------------------ | -------- | ----------------------------------- |
+| `admin@acme.test`  | admin    | roster + org-wide attendance report |
+| `manager@acme.test`| manager  | same full-org view as admin         |
+| `employee@acme.test`| employee| own attendance + personal stats     |
 
 ## Install and run
 
