@@ -79,7 +79,7 @@ Push status: pushed to `origin/main`
 
 Date: 2026-07-11
 
-Status: implemented, verified, reviewed, ready for manual checkpoint
+Status: implemented, verified, reviewed, committed, pushed, awaiting manual checkpoint
 
 ### Finding resolved
 
@@ -140,4 +140,6 @@ Acme stream.
 
 ### Delivery
 
-Planned commit message: `Bind camera stream to configured tenant`
+Implementation commit: `b58a181 Bind camera stream to configured tenant`
+
+Push status: pushed to `origin/main`
