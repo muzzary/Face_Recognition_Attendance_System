@@ -17,6 +17,7 @@ from __future__ import annotations
 from typing import Annotated
 
 from fastapi import Depends, FastAPI, HTTPException, Query
+from fastapi.middleware.cors import CORSMiddleware
 
 from face_attendance.api.dependencies import get_storage
 from face_attendance.contracts import AttendanceEvent, EmployeeRecord
@@ -26,6 +27,17 @@ app = FastAPI(
     title="Face Attendance API",
     version="1.0.0",
     summary="Read-only reporting over tenant-scoped attendance data.",
+)
+
+# Dev-only CORS: the browser frontend (Vite dev server) runs on a different
+# origin than the API, so the browser blocks fetches without these headers.
+# This is a permissive local-development allow-list; a real cross-origin policy
+# arrives with auth in a later phase.
+app.add_middleware(
+    CORSMiddleware,
+    allow_origins=["http://localhost:5173", "http://127.0.0.1:5173"],
+    allow_methods=["GET"],
+    allow_headers=["*"],
 )
 
 StorageDep = Annotated[AttendanceStorage, Depends(get_storage)]

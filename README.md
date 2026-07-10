@@ -66,6 +66,10 @@ Routes (every data route is scoped by an `org_id` path segment, so a tenant only
 - `GET /orgs/{org_id}/employees/{employee_id}` — one employee, or 404.
 - `GET /orgs/{org_id}/attendance?employee_id=&limit=` — attendance events, optionally filtered by employee and capped to the newest `limit`.
 
+### Web Frontend
+
+A minimal React + TypeScript + Vite single-page app in [`frontend/`](frontend/README.md) renders the roster and recent attendance from the API in plain HTML tables (Phase 4 skeleton — no auth or styling yet). Run the two halves together locally: seed a dev DB and start the API (`python scripts/seed_dev_data.py` then `uvicorn face_attendance.api.main:app --reload`), then `cd frontend && npm install && npm run dev` (http://localhost:5173, which the API's dev CORS allow-list permits).
+
 ### Configuration
 
 All tunables are environment variables validated at startup (defaults in parentheses):

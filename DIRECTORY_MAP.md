@@ -32,9 +32,21 @@ Last updated: 2026-07-10 (Web Arc Phase 3: read-only API)
 - `app/` - application flows: `factory.py` (component wiring), `enroll.py`, `attend.py`, `report.py`, `calibrate.py` (per-camera liveness threshold recommendation).
 - `api/` - read-only FastAPI app over the storage layer: `main.py` (org-scoped employee/attendance/health routes reusing the `EmployeeRecord`/`AttendanceEvent` contracts as response models), `dependencies.py` (`get_storage`/`get_settings` DI so tests can point at a temp database). No auth or write endpoints yet.
 
+## Frontend (`frontend/`)
+
+React + TypeScript + Vite single-page app (Web Arc Phase 4 skeleton) that reads the roster and recent attendance from the API and renders them as plain HTML tables. No auth, styling, or routing yet.
+
+- `package.json`, `vite.config.ts`, `tsconfig.json`, `index.html` - Vite `react-ts` scaffold; `vite.config.ts` also holds the Vitest (jsdom) config.
+- `src/main.tsx` - React root mount.
+- `src/App.tsx` - the single screen: hardcoded `acme` org, fetches employees + attendance from `http://127.0.0.1:8000`, with loading and "Failed to reach API" states.
+- `src/App.test.tsx` - Vitest + React Testing Library tests (mocked `fetch`): employee/attendance rows render, error state on fetch failure.
+- `src/setupTests.ts` - jest-dom matcher registration for Vitest.
+- `README.md` - install/run instructions and the backend prerequisite.
+
 ## Scripts
 
 - `scripts/download_models.py` - thin CLI wrapper around `face_attendance.model_files`.
+- `scripts/seed_dev_data.py` - dev-only seeder: writes an `acme` org with a small roster and attendance events straight through `AttendanceStorage` (no camera) so the frontend has real rows to render.
 - `scripts/stream_preview.py` - stdlib-only MJPEG proof: reuses the pipeline (`build_components`/`run_attendance`) and `draw_overlay`, serving the latest annotated frame as a `multipart/x-mixed-replace` stream at `/stream` with latest-frame-wins output (no web framework).
 
 ## Tests

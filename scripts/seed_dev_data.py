@@ -1,0 +1,74 @@
+"""Seed a local dev database with a small org, roster, and attendance events.
+
+The web frontend skeleton (``frontend/``) needs real rows to render, but the
+normal enrollment path requires a camera. This stdlib-only script writes a
+handful of employees and attendance events straight through ``AttendanceStorage``
+so the API has something to serve during local development. It is a dev
+convenience only - never part of the production data path.
+
+Usage (writes to ``FA_DATABASE_PATH`` or the default ``data/attendance.db``):
+
+    face-attendance init-db          # create the schema first
+    python scripts/seed_dev_data.py  # then seed the "acme" org
+"""
+
+from __future__ import annotations
+
+from datetime import datetime, timedelta, timezone
+
+from face_attendance.config import AppSettings
+from face_attendance.contracts import AttendanceEvent, AttendanceEventType, EmployeeRecord
+from face_attendance.storage import AttendanceStorage
+
+ORG_ID = "acme"
+
+EMPLOYEES = [
+    ("EMP-001", "Ada Lovelace"),
+    ("EMP-002", "Alan Turing"),
+    ("EMP-003", "Grace Hopper"),
+]
+
+
+def main() -> None:
+    settings = AppSettings.from_env()
+    storage = AttendanceStorage(settings.database_path)
+    storage.ensure_organization(ORG_ID, "Acme Corp")
+
+    now = datetime.now(timezone.utc)
+    for index, (employee_id, full_name) in enumerate(EMPLOYEES):
+        storage.add_employee(
+            EmployeeRecord(
+                org_id=ORG_ID,
+                employee_id=employee_id,
+                full_name=full_name,
+                is_active=True,
+                created_at=now - timedelta(days=30),
+            )
+        )
+        # One clock-in and one clock-out per employee so the events table renders.
+        storage.add_attendance_event(
+            AttendanceEvent(
+                org_id=ORG_ID,
+                employee_id=employee_id,
+                occurred_at=now - timedelta(hours=9, minutes=index),
+                event_type=AttendanceEventType.CLOCK_IN,
+                confidence_score=0.98,
+                match_distance=0.21,
+            )
+        )
+        storage.add_attendance_event(
+            AttendanceEvent(
+                org_id=ORG_ID,
+                employee_id=employee_id,
+                occurred_at=now - timedelta(minutes=index),
+                event_type=AttendanceEventType.CLOCK_OUT,
+                confidence_score=0.97,
+                match_distance=0.24,
+            )
+        )
+
+    print(f"Seeded org '{ORG_ID}' with {len(EMPLOYEES)} employees into {settings.database_path}")
+
+
+if __name__ == "__main__":
+    main()

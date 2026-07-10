@@ -1,5 +1,36 @@
 # Phase Log
 
+## Web Arc Phase 4 - First Frontend (Walking Skeleton)
+
+Date: 2026-07-10
+
+### Goal
+
+Fourth phase of the 7-phase web/multi-tenant arc. The project's first-ever frontend: a thin browser -> API -> SQLite slice proving the stack works end to end. Deliberately minimal - no auth, no styling, no routing, no state library (those are later phases).
+
+### What changed
+
+- **New `frontend/` app** (React + TypeScript + Vite, hand-written `react-ts` scaffold - no interactive scaffolder): `package.json`, `vite.config.ts` (also holds the Vitest/jsdom config), `tsconfig.json`, `index.html`, `src/main.tsx`, `src/App.tsx`. One screen with a hardcoded `acme` org constant fetches the roster (`/orgs/acme/employees`) and the newest 10 attendance events (`/orgs/acme/attendance?limit=10`) from `http://127.0.0.1:8000` and renders them as two plain unstyled HTML tables. Basic `Loading...` and `Failed to reach API` (a `role="alert"`) states.
+- **CORS on the API** (`src/face_attendance/api/main.py`): added `CORSMiddleware` with a dev allow-list (`http://localhost:5173` / `http://127.0.0.1:5173`, GET only) so the browser can call the API cross-origin in local dev. No auth implications - that arrives in Phase 5.
+- **`scripts/seed_dev_data.py`** (new, dev-only): seeds an `acme` org with 3 employees and clock-in/out events straight through `AttendanceStorage`, so the skeleton has real rows without needing a camera-driven enrollment.
+- **Tests:** `frontend/src/App.test.tsx` (Vitest + React Testing Library, mocked `fetch`): employee/attendance rows render from API data; the error state renders on fetch failure. `src/setupTests.ts` registers jest-dom matchers.
+- **Docs:** new `frontend/README.md` (install/run + backend prerequisite); root `README.md` gains a "Web Frontend" pointer; `DIRECTORY_MAP.md` documents the `frontend/` tree and the seed script. `.gitignore` now covers `frontend/node_modules/` and `frontend/dist/`.
+
+### Verified
+
+- **Frontend tests:** `npm test` -> 2 passed (`vitest run`).
+- **Frontend build:** `npm run build` (`tsc && vite build`) succeeds with no TypeScript errors.
+- **End to end against a real seeded DB** (scratch `FA_DATABASE_PATH`, not the user's data): ran `init-db` + `seed_dev_data.py`, started `uvicorn ... api.main:app` on port 8000, and confirmed the API returns the seeded `acme` roster (3 employees) and attendance (`limit=2` -> newest 2 clock-outs), that the CORS header `access-control-allow-origin: http://localhost:5173` is present, and that the Vite dev server on 5173 serves `index.html` and the `App.tsx` module (correct `ORG_ID = "acme"` and `/orgs/` fetch paths).
+- **Python suite:** `python -m unittest discover -s tests` -> **173 tests, all green** (CORS was the only Python change; no logic touched).
+
+### Manual checkpoint still owed
+
+- A human eyeballing the rendered page in an actual browser (tables populated, then killing the API to see the "Failed to reach API" state). No browser-automation tool this session, so visual confirmation is left to the operator - same convention as the prior phases' camera checkpoints.
+
+### Review
+
+- Reviewed, clean. CORS is dev-scoped (explicit origins, GET only, no credentials). The frontend has no secrets and no write path; the seed script is dev-only and never part of the production data path.
+
 ## Web Arc Phase 3 - Read-Only HTTP API
 
 Date: 2026-07-10
