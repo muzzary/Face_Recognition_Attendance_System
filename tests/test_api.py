@@ -3,6 +3,7 @@ tenant-isolation guarantee carried over from Phase 2 - an org_id in the URL
 only ever sees that org's data. All data routes are now behind an admin token
 (Phase 5 auth); the per-role scopes are exercised in test_auth."""
 
+import threading
 import unittest
 from datetime import datetime, timedelta, timezone
 from pathlib import Path
@@ -10,9 +11,14 @@ from tempfile import TemporaryDirectory
 
 from fastapi.testclient import TestClient
 
-from face_attendance.api.auth import get_settings, hash_password
+from face_attendance.api.auth import (
+    create_access_token,
+    get_settings,
+    hash_password,
+)
 from face_attendance.api.dependencies import get_storage
 from face_attendance.api.main import app
+from face_attendance.api.streaming import LatestJpegFrame
 from face_attendance.config import AppSettings
 from face_attendance.contracts import (
     AttendanceEvent,
@@ -191,6 +197,93 @@ class ApiTests(unittest.TestCase):
         ).json()
         self.assertEqual(len(globex_events), 1)
         self.assertEqual(globex_events[0]["org_id"], "globex")
+
+
+class _FakeStreamer:
+    """Stands in for a running CameraStreamer without any hardware."""
+
+    def __init__(self, available: bool) -> None:
+        self.jpeg_frame = LatestJpegFrame()
+        self.stop_event = threading.Event()
+        self.available = available
+
+
+class StreamRouteTests(unittest.TestCase):
+    """Auth/RBAC/availability for GET /orgs/{org_id}/stream (no camera needed)."""
+
+    def setUp(self) -> None:
+        settings = AppSettings.from_env(environ={"FA_JWT_SECRET": SECRET})
+        app.dependency_overrides[get_settings] = lambda: settings
+        self.addCleanup(app.dependency_overrides.clear)
+        self.client = TestClient(app)
+        # No streamer by default (lifespan is not run under a plain TestClient).
+        app.state.streamer = None
+        self.addCleanup(lambda: setattr(app.state, "streamer", None))
+
+    def _token(self, role: UserRole, org: str = "acme", employee_id=None) -> str:
+        user = UserRecord(
+            org_id=org,
+            user_id=f"{role.value}@{org}.test",
+            role=role,
+            password_hash="x",
+            employee_id=employee_id,
+            created_at=NOW,
+        )
+        return create_access_token(user, SECRET)
+
+    def test_no_token_is_401(self) -> None:
+        self.assertEqual(self.client.get("/orgs/acme/stream").status_code, 401)
+
+    def test_invalid_token_is_401(self) -> None:
+        response = self.client.get("/orgs/acme/stream?token=not-a-jwt")
+        self.assertEqual(response.status_code, 401)
+
+    def test_org_mismatch_is_403(self) -> None:
+        app.state.streamer = _FakeStreamer(available=True)
+        header = {"Authorization": f"Bearer {self._token(UserRole.ADMIN)}"}
+        response = self.client.get("/orgs/globex/stream", headers=header)
+        self.assertEqual(response.status_code, 403)
+
+    def test_employee_is_forbidden(self) -> None:
+        app.state.streamer = _FakeStreamer(available=True)
+        token = self._token(UserRole.EMPLOYEE, employee_id="EMP-001")
+        response = self.client.get(f"/orgs/acme/stream?token={token}")
+        self.assertEqual(response.status_code, 403)
+
+    def test_camera_unavailable_is_503(self) -> None:
+        # Both "no streamer at all" and "streamer present but not running" must
+        # 503 rather than hang.
+        token = self._token(UserRole.ADMIN)
+        self.assertEqual(
+            self.client.get(f"/orgs/acme/stream?token={token}").status_code, 503
+        )
+        app.state.streamer = _FakeStreamer(available=False)
+        self.assertEqual(
+            self.client.get(f"/orgs/acme/stream?token={token}").status_code, 503
+        )
+
+    def test_manager_streams_multipart_when_available(self) -> None:
+        fake = _FakeStreamer(available=True)
+        fake.jpeg_frame.put(b"\xff\xd8live\xff\xd9")
+        app.state.streamer = fake
+        token = self._token(UserRole.MANAGER)
+
+        # The MJPEG generator is endless by design, so bound it for the test:
+        # a timer flips the stop event, the generator ends, and a plain GET can
+        # read the whole (now finite) body without hanging on the live stream.
+        timer = threading.Timer(0.2, fake.stop_event.set)
+        timer.start()
+        self.addCleanup(timer.cancel)
+
+        response = self.client.get(f"/orgs/acme/stream?token={token}")
+
+        self.assertEqual(response.status_code, 200)
+        self.assertIn(
+            "multipart/x-mixed-replace", response.headers["content-type"]
+        )
+        # The pre-published frame came through the route with MJPEG framing.
+        self.assertIn(b"--faframe", response.content)
+        self.assertIn(b"\xff\xd8live\xff\xd9", response.content)
 
 
 if __name__ == "__main__":

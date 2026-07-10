@@ -179,6 +179,35 @@ function AttendanceTable({
   );
 }
 
+// Live MJPEG feed (Phase 7). MJPEG renders natively in a plain <img>, no video
+// library needed. The token rides as a query param because a browser cannot set
+// an Authorization header on an <img> src (a documented API simplification). A
+// 503 (camera unavailable) fires the img onError, which we surface as a clear
+// message instead of a broken-image icon.
+function LiveFeed({ token }: { token: string }) {
+  const [failed, setFailed] = useState(false);
+  const src = `${API_BASE}/orgs/${ORG_ID}/stream?token=${encodeURIComponent(
+    token,
+  )}`;
+  return (
+    <section className="card">
+      <h2>Live camera</h2>
+      {failed ? (
+        <p className="state error" role="alert">
+          Live camera feed is unavailable.
+        </p>
+      ) : (
+        <img
+          className="live-feed"
+          src={src}
+          alt="Live camera feed"
+          onError={() => setFailed(true)}
+        />
+      )}
+    </section>
+  );
+}
+
 // admin and manager share the same full-org scope (a documented Phase 5
 // simplification - no team hierarchy is modeled yet).
 function AdminDashboard({ token }: { token: string }) {
@@ -229,6 +258,8 @@ function AdminDashboard({ token }: { token: string }) {
 
   return (
     <>
+      <LiveFeed token={token} />
+
       <section className="card">
         <h2>Employees</h2>
         {employees.length === 0 ? (

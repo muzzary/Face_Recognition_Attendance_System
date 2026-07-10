@@ -1,17 +1,21 @@
-"""Hardware-free tests for the MJPEG streaming proof (scripts/stream_preview.py).
+"""Hardware-free tests for the shared MJPEG streaming module
+(``face_attendance.api.streaming``).
 
-These prove the two properties the Phase 1 acceptance test cares about, without
-a real webcam or HTTP sockets:
+These prove the properties the Phase 1 acceptance test cares about, without a
+real webcam or HTTP sockets:
 - the JPEG holder is latest-wins and non-blocking (a slow consumer never causes
   a backlog and always sees the newest frame);
 - driving the real non-blocking capture loop (``run_attendance``) through the
   streamer emits a fresh JPEG per frame while a deliberately slow consumer never
-  stalls the producer.
+  stalls the producer;
+- the ``mjpeg_stream`` generator (used by the FastAPI route) is latest-wins and
+  ends cleanly on its stop event;
+- ``CameraStreamer.start`` fails loudly and stays unavailable when the models
+  (and thus the camera path) are missing - the case the API turns into a 503.
 """
 
 from __future__ import annotations
 
-import sys
 import threading
 import time
 import unittest
@@ -20,18 +24,23 @@ from tempfile import TemporaryDirectory
 
 import numpy as np
 
+from face_attendance.api.streaming import (
+    CameraStreamer,
+    LatestJpegFrame,
+    encode_jpeg,
+    mjpeg_chunk,
+    mjpeg_stream,
+)
 from face_attendance.app import draw_overlay, run_attendance
+from face_attendance.config import AppSettings
+from face_attendance.model_files import ModelDownloadError
 from fakes import RepeatingDetector, RepeatingEmbedder, make_frame
 from test_app import build_fake_components, open_source
-
-# scripts/ is not an installed package; add it to the path like tests do for fakes.
-sys.path.insert(0, str(Path(__file__).resolve().parent.parent / "scripts"))
-import stream_preview  # noqa: E402
 
 
 class LatestJpegFrameTests(unittest.TestCase):
     def test_get_after_returns_newest_skipping_stale(self) -> None:
-        holder = stream_preview.LatestJpegFrame()
+        holder = LatestJpegFrame()
         holder.put(b"a")
         holder.put(b"b")
         holder.put(b"c")
@@ -40,13 +49,13 @@ class LatestJpegFrameTests(unittest.TestCase):
         self.assertEqual(holder.get_after(0, timeout=0.01), (b"c", 3))
 
     def test_get_after_times_out_when_nothing_newer(self) -> None:
-        holder = stream_preview.LatestJpegFrame()
+        holder = LatestJpegFrame()
         holder.put(b"a")
 
         self.assertIsNone(holder.get_after(1, timeout=0.01))
 
     def test_get_after_wakes_on_put_from_other_thread(self) -> None:
-        holder = stream_preview.LatestJpegFrame()
+        holder = LatestJpegFrame()
 
         def delayed_put() -> None:
             time.sleep(0.05)
@@ -59,7 +68,7 @@ class LatestJpegFrameTests(unittest.TestCase):
 
 class FramingTests(unittest.TestCase):
     def test_mjpeg_chunk_has_boundary_headers_and_payload(self) -> None:
-        chunk = stream_preview.mjpeg_chunk(b"\xff\xd8jpeg\xff\xd9")
+        chunk = mjpeg_chunk(b"\xff\xd8jpeg\xff\xd9")
 
         self.assertTrue(chunk.startswith(b"--faframe\r\n"))
         self.assertIn(b"Content-Type: image/jpeg\r\n", chunk)
@@ -69,10 +78,37 @@ class FramingTests(unittest.TestCase):
     def test_encode_jpeg_produces_jpeg_magic_bytes(self) -> None:
         image = np.full((48, 64, 3), 90, dtype=np.uint8)
 
-        jpeg = stream_preview.encode_jpeg(image)
+        jpeg = encode_jpeg(image)
 
         self.assertTrue(jpeg.startswith(b"\xff\xd8"))  # SOI
         self.assertTrue(jpeg.endswith(b"\xff\xd9"))  # EOI
+
+
+class MjpegStreamTests(unittest.TestCase):
+    """The generator the FastAPI route hands to StreamingResponse."""
+
+    def test_yields_latest_wins_and_stops_on_event(self) -> None:
+        holder = LatestJpegFrame()
+        stop = threading.Event()
+        gen = mjpeg_stream(holder, stop)
+
+        holder.put(b"\xff\xd8one\xff\xd9")
+        first = next(gen)
+        self.assertTrue(first.startswith(b"--faframe\r\n"))
+        self.assertIn(b"\xff\xd8one\xff\xd9", first)
+
+        # Two frames arrive while the (slow) consumer was busy: it skips the
+        # intermediate one and jumps straight to the newest -- latest-wins.
+        holder.put(b"\xff\xd8two\xff\xd9")
+        holder.put(b"\xff\xd8three\xff\xd9")
+        second = next(gen)
+        self.assertIn(b"\xff\xd8three\xff\xd9", second)
+        self.assertNotIn(b"two", second)
+
+        # The stop event ends the generator cleanly instead of hanging.
+        stop.set()
+        with self.assertRaises(StopIteration):
+            next(gen)
 
 
 class StreamLoopTests(unittest.TestCase):
@@ -94,25 +130,23 @@ class StreamLoopTests(unittest.TestCase):
                 for i in range(frame_count)
             ]
 
-            holder = stream_preview.LatestJpegFrame()
+            holder = LatestJpegFrame()
             stop = threading.Event()
             collected: list[tuple[int, bytes]] = []
 
+            # A slow consumer driven through the exact generator the API route
+            # uses, so the "route never stalls the producer" guarantee is what
+            # is actually exercised here.
             def slow_consumer() -> None:
-                last = 0
-                while not stop.is_set():
-                    result = holder.get_after(last, timeout=0.1)
-                    if result is None:
-                        continue
-                    jpeg, last = result
-                    collected.append((last, jpeg))
+                for chunk in mjpeg_stream(holder, stop):
+                    collected.append((holder.version, chunk))
                     time.sleep(0.02)  # a deliberately slow HTTP client
 
             consumer = threading.Thread(target=slow_consumer, daemon=True)
             consumer.start()
 
             def on_frame(frame, output) -> None:
-                holder.put(stream_preview.encode_jpeg(draw_overlay(frame, output)))
+                holder.put(encode_jpeg(draw_overlay(frame, output)))
 
             stats = run_attendance(
                 components,
@@ -131,19 +165,28 @@ class StreamLoopTests(unittest.TestCase):
             self.assertEqual(holder.version, frame_count)
 
             # Consumer fell behind (no backlog): it saw fewer frames than were
-            # produced, and the versions it did see strictly increase (frames
-            # were dropped, never replayed).
-            versions = [version for version, _ in collected]
+            # produced, and every chunk it did see is a valid MJPEG part.
             self.assertTrue(collected)
             self.assertLess(len(collected), frame_count)
-            self.assertEqual(versions, sorted(set(versions)))
-            # At least one gap > 1 proves latest-wins skipping of stale frames.
-            self.assertTrue(
-                any(b - a > 1 for a, b in zip(versions, versions[1:])),
-                "slow consumer should skip intermediate frames (latest-wins)",
+            for _, chunk in collected:
+                self.assertTrue(chunk.startswith(b"--faframe\r\n"))
+                self.assertIn(b"\xff\xd8", chunk)
+
+
+class CameraStreamerTests(unittest.TestCase):
+    def test_start_fails_loud_and_stays_unavailable_without_models(self) -> None:
+        # An empty models dir stands in for "no camera path available" (dev/CI):
+        # start() raises before any hardware is touched and the feed reports
+        # itself unavailable, which the API turns into a 503 rather than a hang.
+        with TemporaryDirectory() as temp_dir:
+            settings = AppSettings.from_env(
+                environ={"FA_MODELS_DIR": str(Path(temp_dir) / "no-models")}
             )
-            for _, jpeg in collected:
-                self.assertTrue(jpeg.startswith(b"\xff\xd8"))
+            streamer = CameraStreamer(settings)
+
+            with self.assertRaises(ModelDownloadError):
+                streamer.start()
+            self.assertFalse(streamer.available)
 
 
 if __name__ == "__main__":

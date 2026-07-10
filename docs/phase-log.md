@@ -1,5 +1,33 @@
 # Phase Log
 
+## Web Arc Phase 7 - Authenticated Live Camera Stream
+
+Date: 2026-07-10
+
+### Goal
+
+Final phase of the 7-phase web/multi-tenant arc. Wire Phase 1's standalone MJPEG proof into the authenticated API + dashboard as a real product feature: one shared streaming module, an auth/RBAC-guarded `GET /orgs/{org_id}/stream` route the API owns for its lifetime, and an admin/manager-only Live panel in the frontend.
+
+### What changed
+
+- **`src/face_attendance/api/streaming.py` (new)**: the reusable streaming primitives lifted out of `scripts/stream_preview.py` so the script and the API share one implementation - `LatestJpegFrame` (latest-wins JPEG holder), `encode_jpeg`, `mjpeg_chunk`, the `mjpeg_stream` generator (latest-wins, ends on a stop event), and `CameraStreamer` which opens the camera on the calling thread and runs `run_attendance` on a background thread, publishing each annotated frame into the holder. `_StoppableFrameSource` lets the loop exit promptly on shutdown (it has no external stop flag). `start()` raises on camera/model failure so each caller picks its own error policy.
+- **`src/face_attendance/api/auth.py`**: extracted `decode_access_token`/`_unauthorized`; added `get_stream_user` which accepts the bearer token via the `Authorization` header **or** a `?token=` query param (header preferred) - a browser cannot set headers on an `<img>` MJPEG src. Documented as a known simplification (query-param tokens can leak via logs/referrer), acceptable for this internal thin slice only.
+- **`src/face_attendance/api/main.py`**: a lifespan starts a `CameraStreamer` on app startup and stops it on shutdown - if the camera/models are unavailable it logs a warning and leaves the feed disabled, the rest of the API keeps serving. `GET /orgs/{org_id}/stream` reuses `require_org_match` + role check (employee → 403), returns a `StreamingResponse` (`multipart/x-mixed-replace`) backed by the shared holder, and returns 503 when the streamer is unavailable rather than hanging.
+- **`scripts/stream_preview.py`**: reduced to a thin CLI wrapper - it keeps its stdlib `ThreadingHTTPServer` proof but drives it off `CameraStreamer`/`LatestJpegFrame` from the shared module instead of re-wiring `build_components`/`run_attendance`.
+- **`frontend/src/App.tsx` + `App.css`**: a `LiveFeed` panel (admin/manager view only, so employees never see it) renders the MJPEG feed in a plain `<img>` with the token as a `?token=` query param, and swaps to a clear "Live camera feed is unavailable." message on the img `onError` (the 503 case) instead of a broken-image icon.
+- **Docs**: README API + Web Frontend sections document the new endpoint and the auth-via-query-param note; DIRECTORY_MAP updated for the new module, the thinned script, and the renamed test file.
+
+### Verified
+
+- **Python suite:** `python -m unittest discover -s tests` → **193 tests OK** (was 185). New: `test_streaming.py` adds the `mjpeg_stream` latest-wins/clean-stop test and the `CameraStreamer.start` fails-loud-and-unavailable-without-models test (the case the API turns into a 503); `test_api.py`'s `StreamRouteTests` covers 401 (no/invalid token), 403 (org-mismatch, employee), 503 (no camera / streamer not running), and a real MJPEG multipart frame flowing through the route via a fake streamer (bounded with a timer so the endless stream does not hang the TestClient).
+- **Frontend:** `npm run build` (tsc + vite) clean; `npm test` → **11 passed** (was 8), the three new tests covering Live-panel visibility for admin, its absence for employee, and the img-onError → unavailable-message path.
+- **End-to-end (uvicorn + curl, real camera):** see below.
+- **Not verified (owed):** the visual browser render of live video and a full role-based click-through (admin/manager see Live, employee does not) - no browser automation this session, same manual checkpoint convention as prior phases.
+
+### Review
+
+- Reviewed, clean. Auth/role/org checks precede the availability check so employee→403 and cross-org→403 hold even with a camera; the camera failure path degrades to 503 without touching the data routes; the streaming primitives are shared (no copy-paste between script and API); the query-param token is documented as a hardening follow-up, not production-ready.
+
 ## Web Arc Phase 6 - Role-Appropriate Dashboards
 
 Date: 2026-07-10

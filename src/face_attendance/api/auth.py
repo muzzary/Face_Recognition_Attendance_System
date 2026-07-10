@@ -15,7 +15,7 @@ from datetime import datetime, timedelta, timezone
 from typing import Annotated
 
 import jwt
-from fastapi import Depends, Header, HTTPException
+from fastapi import Depends, Header, HTTPException, Query
 from pydantic import BaseModel
 
 from face_attendance.api.dependencies import get_settings
@@ -118,30 +118,24 @@ def create_access_token(user: UserRecord, secret: str) -> str:
 SettingsDep = Annotated[AppSettings, Depends(get_settings)]
 
 
-def get_current_user(
-    settings: SettingsDep,
-    authorization: Annotated[str | None, Header()] = None,
-) -> AuthenticatedUser:
-    """Decode and verify the ``Authorization: Bearer <token>`` header.
-
-    401 on a missing, malformed, invalid, or expired token - never
-    distinguishing which, so a caller learns nothing beyond "not authorized".
-    """
-
-    unauthorized = HTTPException(
+def _unauthorized() -> HTTPException:
+    # One identical 401 for missing/malformed/invalid/expired tokens, so a
+    # caller learns nothing beyond "not authorized".
+    return HTTPException(
         status_code=401,
         detail="missing or invalid authentication token",
         headers={"WWW-Authenticate": "Bearer"},
     )
-    if authorization is None or not authorization.startswith("Bearer "):
-        raise unauthorized
-    token = authorization[len("Bearer ") :]
+
+
+def decode_access_token(settings: AppSettings, token: str) -> AuthenticatedUser:
+    """Verify a raw JWT and return its identity, or raise 401."""
+
     secret = require_jwt_secret(settings)
     try:
         payload = jwt.decode(token, secret, algorithms=[_JWT_ALGORITHM])
     except jwt.PyJWTError as exc:
-        raise unauthorized from exc
-
+        raise _unauthorized() from exc
     try:
         return AuthenticatedUser(
             user_id=str(payload["sub"]),
@@ -150,10 +144,49 @@ def get_current_user(
             employee_id=payload.get("employee_id"),
         )
     except (KeyError, ValueError) as exc:
-        raise unauthorized from exc
+        raise _unauthorized() from exc
+
+
+def get_current_user(
+    settings: SettingsDep,
+    authorization: Annotated[str | None, Header()] = None,
+) -> AuthenticatedUser:
+    """Decode and verify the ``Authorization: Bearer <token>`` header.
+
+    401 on a missing, malformed, invalid, or expired token.
+    """
+
+    if authorization is None or not authorization.startswith("Bearer "):
+        raise _unauthorized()
+    return decode_access_token(settings, authorization[len("Bearer ") :])
 
 
 CurrentUserDep = Annotated[AuthenticatedUser, Depends(get_current_user)]
+
+
+def get_stream_user(
+    settings: SettingsDep,
+    authorization: Annotated[str | None, Header()] = None,
+    token: Annotated[str | None, Query()] = None,
+) -> AuthenticatedUser:
+    """Like ``get_current_user`` but also accepts the token as ``?token=``.
+
+    A browser cannot set an ``Authorization`` header on the ``<img>``/``<video>``
+    ``src`` used to render an MJPEG stream, so this route also accepts the token
+    as a query parameter (the header is preferred when both are present). Query
+    -param tokens can leak via server access logs and referrer headers - an
+    accepted simplification for this internal thin slice, NOT for a hardened
+    production deployment.
+    """
+
+    if authorization is not None and authorization.startswith("Bearer "):
+        return decode_access_token(settings, authorization[len("Bearer ") :])
+    if token is not None:
+        return decode_access_token(settings, token)
+    raise _unauthorized()
+
+
+StreamUserDep = Annotated[AuthenticatedUser, Depends(get_stream_user)]
 
 
 def require_org_match(user: AuthenticatedUser, org_id: str) -> None:

@@ -108,6 +108,16 @@ body {
   margin: 0;
 }
 
+/* --- Live camera feed --- */
+.live-feed {
+  display: block;
+  width: 100%;
+  max-width: 100%;
+  height: auto;
+  border-radius: 8px;
+  background: #111;
+}
+
 /* --- Tables --- */
 .table-scroll {
   overflow-x: auto;

@@ -116,6 +116,47 @@ describe("Admin/manager dashboard", () => {
   });
 });
 
+describe("Live camera feed", () => {
+  it("shows the live feed for admin/manager", async () => {
+    localStorage.setItem(TOKEN_KEY, adminToken);
+    mockFetch((url) => (url.includes("/employees") ? employees : events));
+    render(<App />);
+
+    const feed = (await screen.findByAltText(
+      "Live camera feed",
+    )) as HTMLImageElement;
+    expect(feed).toBeInTheDocument();
+    // Token rides as a query param (an <img> src cannot set an auth header).
+    expect(feed.src).toContain("/orgs/acme/stream?token=");
+    expect(feed.src).toContain(adminToken);
+  });
+
+  it("does not show the live feed for an employee", async () => {
+    localStorage.setItem(TOKEN_KEY, employeeToken);
+    mockFetch(() => events);
+    render(<App />);
+
+    await screen.findByText("Your attendance history");
+    expect(screen.queryByAltText("Live camera feed")).not.toBeInTheDocument();
+    expect(screen.queryByText("Live camera")).not.toBeInTheDocument();
+  });
+
+  it("shows an unavailable message when the stream errors (503)", async () => {
+    localStorage.setItem(TOKEN_KEY, adminToken);
+    mockFetch((url) => (url.includes("/employees") ? employees : events));
+    render(<App />);
+
+    const feed = await screen.findByAltText("Live camera feed");
+    // Simulate the browser firing onError when the stream 503s.
+    fireEvent.error(feed);
+
+    expect(
+      await screen.findByText("Live camera feed is unavailable."),
+    ).toBeInTheDocument();
+    expect(screen.queryByAltText("Live camera feed")).not.toBeInTheDocument();
+  });
+});
+
 describe("Employee self-service dashboard", () => {
   it("never requests the roster and shows only its own attendance", async () => {
     localStorage.setItem(TOKEN_KEY, employeeToken);

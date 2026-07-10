@@ -1,6 +1,6 @@
 # Directory Map
 
-Last updated: 2026-07-10 (Web Arc Phase 3: read-only API)
+Last updated: 2026-07-10 (Web Arc Phase 7: authenticated live camera stream)
 
 ## Root
 
@@ -30,11 +30,11 @@ Last updated: 2026-07-10 (Web Arc Phase 3: read-only API)
 - `storage/` - SQLite schema (WAL, indexes, org-scoped tables) and `AttendanceStorage` repository; `migrate_to_org_scoping` upgrades a pre-tenant v2 database to the org-scoped v3 schema in place.
 - `config/` - `AppSettings`: validated runtime configuration with `FA_*` env overrides.
 - `app/` - application flows: `factory.py` (component wiring), `enroll.py`, `attend.py`, `report.py`, `calibrate.py` (per-camera liveness threshold recommendation).
-- `api/` - read-only FastAPI app over the storage layer, behind JWT auth + RBAC: `main.py` (org-scoped employee/attendance/health routes plus `POST /auth/login`, guarded by role/org checks), `auth.py` (PBKDF2 password hashing, HS256 JWT issue/verify, `get_current_user` dependency, `authenticate_user`, `require_org_match`), `dependencies.py` (`get_storage`/`get_settings` DI so tests can point at a temp database and inject a test secret). No write endpoints yet.
+- `api/` - FastAPI app over the storage layer, behind JWT auth + RBAC: `main.py` (org-scoped employee/attendance/health routes plus `POST /auth/login` and the live `GET /orgs/{org_id}/stream` MJPEG feed, guarded by role/org checks; a lifespan owns the camera for the process lifetime and degrades to 503 if none is available), `auth.py` (PBKDF2 password hashing, HS256 JWT issue/verify, `get_current_user`/`get_stream_user` dependencies - the latter also accepts the token via `?token=` for `<img>` MJPEG - `authenticate_user`, `require_org_match`), `streaming.py` (shared MJPEG primitives - `LatestJpegFrame` latest-wins holder, `encode_jpeg`, `mjpeg_chunk`, `mjpeg_stream` generator, and `CameraStreamer` which runs the recognition loop on a background thread; reused by the API route and the CLI proof), `dependencies.py` (`get_storage`/`get_settings` DI so tests can point at a temp database and inject a test secret). The data routes are read-only; there are no write endpoints.
 
 ## Frontend (`frontend/`)
 
-React + TypeScript + Vite single-page app (Web Arc skeleton) that gates on a login form (Phase 5), then reads the roster and recent attendance from the API with a bearer token and renders them as plain HTML tables. No styling or role-adaptive UI yet.
+React + TypeScript + Vite single-page app that gates on a login form (Phase 5), then renders role-appropriate dashboards (Phase 6) plus an admin/manager-only live camera panel (Phase 7). The `<img>`-based MJPEG feed carries the token as a `?token=` query param and shows an "unavailable" message when the stream 503s.
 
 - `package.json`, `vite.config.ts`, `tsconfig.json`, `index.html` - Vite `react-ts` scaffold; `vite.config.ts` also holds the Vitest (jsdom) config.
 - `src/main.tsx` - React root mount.
@@ -47,7 +47,7 @@ React + TypeScript + Vite single-page app (Web Arc skeleton) that gates on a log
 
 - `scripts/download_models.py` - thin CLI wrapper around `face_attendance.model_files`.
 - `scripts/seed_dev_data.py` - dev-only seeder: writes an `acme` org with a small roster, attendance events, and three fake per-role login users (`admin`/`manager`/`employee`, password printed to stdout) straight through `AttendanceStorage` (no camera) so the frontend has real rows and logins to use.
-- `scripts/stream_preview.py` - stdlib-only MJPEG proof: reuses the pipeline (`build_components`/`run_attendance`) and `draw_overlay`, serving the latest annotated frame as a `multipart/x-mixed-replace` stream at `/stream` with latest-frame-wins output (no web framework).
+- `scripts/stream_preview.py` - thin stdlib-only CLI wrapper around `face_attendance.api.streaming` (`CameraStreamer` + `LatestJpegFrame`): serves the latest annotated frame as a `multipart/x-mixed-replace` stream at `/stream` over a raw `ThreadingHTTPServer`, no web framework and no auth (the authenticated equivalent is the API's `/orgs/{org_id}/stream`).
 
 ## Tests
 
@@ -67,8 +67,8 @@ React + TypeScript + Vite single-page app (Web Arc skeleton) that gates on a log
 - `tests/test_config.py` - settings defaults, env overrides, validation errors.
 - `tests/test_app.py` - end-to-end enrollment/attendance with fakes, CLI dispatch.
 - `tests/test_calibrate.py` - liveness calibration sampling, recommendation formulas, report output.
-- `tests/test_stream_preview.py` - MJPEG streamer: latest-wins/non-blocking JPEG holder, multipart framing, and the slow-consumer-never-stalls-producer guarantee over the real capture loop.
-- `tests/test_api.py` - read-only API via FastAPI TestClient against a temp SQLite DB (now behind an admin token): employee roster/single-lookup (incl. 404), attendance list with `limit`/employee filter, and cross-route tenant isolation (cross-org token -> 403) on a two-org database.
+- `tests/test_streaming.py` - shared MJPEG module: latest-wins/non-blocking JPEG holder, multipart framing, the `mjpeg_stream` generator (latest-wins + clean stop), the slow-consumer-never-stalls-producer guarantee over the real capture loop, and `CameraStreamer.start` failing loud/unavailable when models are missing.
+- `tests/test_api.py` - API via FastAPI TestClient against a temp SQLite DB (behind an admin token): employee roster/single-lookup (incl. 404), attendance list with `limit`/employee filter, cross-route tenant isolation (cross-org token -> 403), plus the live stream route (`StreamRouteTests`): 401 no/invalid token, 403 org-mismatch/employee, 503 when no camera, and a real MJPEG multipart frame flowing through the route via a fake streamer.
 - `tests/test_auth.py` - auth + RBAC: login success/failure (401, indistinguishable email vs password), missing/invalid/expired token -> 401, cross-org token -> 403, and per-role read scopes (admin/manager full roster, employee denied roster / allowed own record / denied others / attendance auto-scoped to self).
 
 ## Docs

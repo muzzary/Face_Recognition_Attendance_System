@@ -1,15 +1,15 @@
 """Standalone MJPEG proof: stream annotated recognition frames over HTTP.
 
 Phase 1 of the web-product arc, and a deliberately small proof rather than the
-final architecture. It reuses the existing non-blocking capture loop
-(``run_attendance``) and the shared ``draw_overlay`` annotation, then serves the
-latest annotated frame as an MJPEG ``multipart/x-mixed-replace`` stream using
-only the standard library -- no web framework (that arrives in a later phase).
+final architecture. The reusable streaming primitives now live in
+``face_attendance.api.streaming`` (shared with the authenticated Phase 7 API
+route); this script is a thin stdlib-only CLI wrapper around them - no web
+framework, no auth - that serves the shared ``LatestJpegFrame`` over a raw
+``ThreadingHTTPServer`` at ``/stream``.
 
 The core guarantee is preserved end to end: a slow HTTP client can never back up
-the recognition worker. Camera frames still flow through the pipeline's
-``LatestFrameSlot`` (stale frames dropped, not queued), and the HTTP output uses
-the same latest-frame-wins discipline via ``LatestJpegFrame`` below.
+the recognition worker (stale camera frames are dropped by the pipeline, and the
+HTTP output uses the same latest-frame-wins ``LatestJpegFrame`` discipline).
 
 Run:
     python scripts/stream_preview.py            # then open http://127.0.0.1:8000/
@@ -23,10 +23,15 @@ import logging
 import threading
 from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 
-logger = logging.getLogger(__name__)
+from face_attendance.api.streaming import (
+    BOUNDARY,
+    CameraStreamer,
+    LatestJpegFrame,
+    mjpeg_chunk,
+)
+from face_attendance.config import AppSettings
 
-# Multipart boundary marker separating JPEG parts in the stream.
-BOUNDARY = "faframe"
+logger = logging.getLogger(__name__)
 
 INDEX_HTML = (
     b"<!doctype html><title>Face Attendance stream</title>"
@@ -34,72 +39,6 @@ INDEX_HTML = (
     b"<img src='/stream' style='width:100%;height:auto'>"
     b"</body>"
 )
-
-
-class LatestJpegFrame:
-    """Latest-wins broadcast holder for encoded JPEG frames.
-
-    Mirrors ``LatestFrameSlot``'s discipline on the HTTP side: ``put`` overwrites
-    the stored frame and bumps a version counter; a consumer that fell behind
-    simply receives the newest frame on its next ``get_after`` call, never a
-    queued backlog. ``put`` only briefly holds the lock and never blocks, so a
-    slow HTTP client can never stall the producer.
-    """
-
-    def __init__(self) -> None:
-        self._condition = threading.Condition()
-        self._jpeg: bytes | None = None
-        self._version = 0
-
-    @property
-    def version(self) -> int:
-        with self._condition:
-            return self._version
-
-    def put(self, jpeg: bytes) -> None:
-        with self._condition:
-            self._jpeg = jpeg
-            self._version += 1
-            self._condition.notify_all()
-
-    def get_after(
-        self, last_version: int, timeout: float = 1.0
-    ) -> tuple[bytes, int] | None:
-        """Return ``(jpeg, version)`` for the latest frame newer than last_version.
-
-        Waits up to ``timeout`` for a newer frame, returning ``None`` on timeout
-        so a caller can re-check a stop flag. Any frames produced while the
-        caller was busy are skipped -- latest-wins, never a backlog.
-        """
-
-        with self._condition:
-            if self._version <= last_version:
-                self._condition.wait(timeout)
-            if self._jpeg is None or self._version <= last_version:
-                return None
-            return self._jpeg, self._version
-
-
-def encode_jpeg(image) -> bytes:
-    """Encode a BGR numpy image as JPEG bytes."""
-
-    import cv2
-
-    ok, buffer = cv2.imencode(".jpg", image)
-    if not ok:
-        raise RuntimeError("cv2.imencode failed to encode frame as JPEG")
-    return buffer.tobytes()
-
-
-def mjpeg_chunk(jpeg: bytes) -> bytes:
-    """Wrap one JPEG as a ``multipart/x-mixed-replace`` part."""
-
-    return (
-        b"--" + BOUNDARY.encode("ascii") + b"\r\n"
-        b"Content-Type: image/jpeg\r\n"
-        b"Content-Length: " + str(len(jpeg)).encode("ascii") + b"\r\n\r\n"
-        + jpeg + b"\r\n"
-    )
 
 
 class _StreamHandler(BaseHTTPRequestHandler):
@@ -179,41 +118,23 @@ def main(argv: list[str] | None = None) -> int:
         level=logging.INFO, format="%(asctime)s %(levelname)s %(message)s"
     )
 
-    # Imported here so the testable streaming primitives above stay free of the
-    # camera/CLI import chain (the unit tests never construct real hardware).
-    from face_attendance.app import build_components, draw_overlay, run_attendance
-    from face_attendance.cli import _make_camera, _require_models
-    from face_attendance.config import AppSettings
-
     settings = AppSettings.from_env()
-    _require_models(settings)
-    components = build_components(settings)
+    streamer = CameraStreamer(settings, camera_index=args.camera_index)
+    streamer.start()  # opens the camera; fails loud if models/camera are missing
 
-    jpeg_frame = LatestJpegFrame()
-    stop_event = threading.Event()
-    server = StreamServer((args.host, args.port), jpeg_frame, stop_event)
-    server_thread = threading.Thread(
-        target=server.serve_forever, name="mjpeg-http", daemon=True
+    server = StreamServer(
+        (args.host, args.port), streamer.jpeg_frame, streamer.stop_event
     )
-    server_thread.start()
     print(
         f"MJPEG stream live at http://{args.host}:{args.port}/ "
         f"(raw stream at /stream). Press Ctrl+C to stop."
     )
-
-    def on_frame(frame, output) -> None:
-        # Encode on the capture thread -- the same place the cv2 preview draws.
-        # The holder is latest-wins, so this never blocks on HTTP clients and
-        # the recognition worker (a separate thread) is never touched here.
-        jpeg_frame.put(encode_jpeg(draw_overlay(frame, output)))
-
-    camera = _make_camera(settings, args.camera_index)
     try:
-        run_attendance(components, camera, display=False, on_frame=on_frame)
+        server.serve_forever()
     except KeyboardInterrupt:
         print("\ninterrupted")
     finally:
-        stop_event.set()
+        streamer.stop()
         server.shutdown()
         server.server_close()
     return 0
