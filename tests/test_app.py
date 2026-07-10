@@ -95,7 +95,7 @@ class EnrollmentFlowTests(unittest.TestCase):
 
             self.assertEqual(employee.employee_id, "EMP-001")
             self.assertEqual(
-                len(components.storage.list_embeddings_for_employee("EMP-001")), 2
+                len(components.storage.list_embeddings_for_employee("default", "EMP-001")), 2
             )
             # Index refreshed: the new employee is immediately matchable.
             self.assertEqual(components.index.size, 2)
@@ -129,7 +129,7 @@ class EnrollmentFlowTests(unittest.TestCase):
                 embedder=RepeatingEmbedder([0.9, 0.1, 0.0]),
             )
             components.storage.add_employee(
-                EmployeeRecord(employee_id="EMP-001", full_name="Ada", created_at=NOW)
+                EmployeeRecord(org_id="default", employee_id="EMP-001", full_name="Ada", created_at=NOW)
             )
 
             with self.assertRaises(EnrollmentError) as ctx:
@@ -152,7 +152,7 @@ class AttendanceFlowTests(unittest.TestCase):
                 embedder=RepeatingEmbedder([1.0, 0.0, 0.0]),
             )
             components.storage.add_employee(
-                EmployeeRecord(employee_id="EMP-001", full_name="Ada", created_at=NOW)
+                EmployeeRecord(org_id="default", employee_id="EMP-001", full_name="Ada", created_at=NOW)
             )
             components.storage.add_embedding("EMP-001", make_embedding([1.0, 0.0, 0.0]))
             components.index.refresh_from_storage(components.storage)
@@ -169,7 +169,7 @@ class AttendanceFlowTests(unittest.TestCase):
 
             self.assertGreaterEqual(stats.events_logged, 1)
             self.assertFalse(stats.pipeline_failed)
-            events = components.storage.list_attendance_events("EMP-001")
+            events = components.storage.list_attendance_events("default", "EMP-001")
             self.assertGreaterEqual(len(events), 1)
             self.assertTrue(any("CLOCK_IN" in message for message in messages))
 
@@ -193,7 +193,7 @@ class AttendanceFlowTests(unittest.TestCase):
 
             self.assertEqual(stats.events_logged, 0)
             self.assertTrue(any("no enrolled employees" in m for m in messages))
-            self.assertEqual(components.storage.list_attendance_events(), [])
+            self.assertEqual(components.storage.list_attendance_events("default"), [])
 
 
 class CliTests(unittest.TestCase):

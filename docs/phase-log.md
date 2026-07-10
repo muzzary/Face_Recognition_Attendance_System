@@ -1,6 +1,34 @@
 # Phase Log
 
-## Web Arc Phase 1 - MJPEG Live Stream Proof
+## Web Arc Phase 2 - Organization (Tenant) Scoping of the Data Layer
+
+Date: 2026-07-10
+
+### Goal
+
+Second phase of the 7-phase web/multi-tenant arc. Make the SQLite data layer tenant-aware so different companies' data can never leak into each other's queries, without breaking anything that works today. This phase is data-layer only - no API/HTTP, auth, or frontend (those are later phases).
+
+### What changed
+
+- **Contracts (`contracts.py`):** `EmployeeRecord`, `FaceEmbedding`, and `AttendanceEvent` each gained a required `org_id: str` (`min_length=1`). A missing/empty org id now fails at the contract boundary.
+- **Schema v3 (`storage/database.py`):** new `organizations(org_id PK, name, created_at)` table; `org_id TEXT NOT NULL REFERENCES organizations(org_id)` denormalized onto all three data tables (so every table filters/indexes by org without a join, which matters for report-query performance at scale); a defensive `UNIQUE(org_id, employee_id)` on `employees`; and an `org_id` index on each of the three tables. `employee_id` stays a single global TEXT primary key this phase (a composite key is a larger structural change deferred). Per-table CREATE statements are now module constants so the fresh-schema path and the migration reuse one definition. `initialize_database` creates v3 directly and seeds the built-in `default` org so single-tenant writes have a valid FK target.
+- **Migration (`migrate_to_org_scoping`):** upgrades an existing v2 database in place. Adds `organizations` + one default org, then rebuilds each data table at the v3 schema and copies rows across with the default org backfilled (SQLite can't `ALTER` a NOT NULL column onto a populated table). Foreign keys are disabled for the table-rebuild swap and a `foreign_key_check` guards integrity before commit; a precondition refuses to run on a database that is already org-scoped. Verified against a real v2-shaped database: user_version 2→3, default org created, every row preserved byte-identical apart from the new `org_id`.
+- **`AttendanceStorage`:** every write stamps `org_id` from its contract (`add_employee`, `add_employee_with_embeddings`, `add_embedding`, `add_attendance_event`); `add_employee_with_embeddings` also refuses a gallery that mixes orgs. Every read now *requires* an `org_id` first argument and filters by it (`get_employee`, `list_employees`, `list_embeddings_for_employee`, `list_active_embeddings`, `list_attendance_events`, `get_last_attendance_event`, `count_employees`, `set_employee_active`) - there is no read left that can silently return cross-org data. New idempotent `ensure_organization`.
+- **Config (`settings.py`):** new `FA_ORG_ID` setting (validated `min_length=1`, defaults to `default`). Documented in the README config table.
+- **Threading org_id through the services:** `SFaceEmbedder`, `EnrollmentService`, `AttendanceService`, and `EmployeeEmbeddingIndex` each carry the terminal's org id (defaulting to `default`); `build_components` wires `settings.org_id` into all of them and calls `ensure_organization` so the CLI's org always exists before any write. `enroll.py`, `report.py`, and the CLI's `report`/`employees` paths pass the org through. Each change is a mechanical field-threading, not a logic redesign.
+
+### Verified
+
+- `python -m unittest discover -s tests`: **164 tests, all green** (was 150; +14 new in `tests/test_org_scoping.py`). All existing tests updated for the new required field / arguments.
+- New tests prove: (a) tenant isolation with one test per read method (a second org's rows never appear in the first org's reads); (b) the migration upgrades a populated v2-shaped database with zero data loss and correct default-org tagging, and the result reads back through `AttendanceStorage`; (c) writing with an empty org id (contract `ValidationError`) or an unknown org (foreign-key `StorageError`) fails loudly.
+- Watched it work on real databases (not just tests): two orgs (`acme`, `globex`) each see only their own employees/events, a cross-org `get_employee` returns `None`, and a hand-built v2 database migrated cleanly (version 2→3, default org seeded, legacy rows preserved and readable through the repository).
+
+### Review
+
+- Reviewed, clean. One robustness fix applied during self-review: the migration's error path uses `connection.rollback()` (a no-op when no transaction is open) instead of executing `ROLLBACK`, so a failure during the pre-migration probe can't mask the real error with a "no transaction is active" exception.
+- Design note: `org_id` is denormalized onto all three tables (not just `employees`) deliberately - it lets every tenant-scoped hot path filter on a local index without a join, matching the scalability posture documented in the README.
+
+
 
 Date: 2026-07-10
 

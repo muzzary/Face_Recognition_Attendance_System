@@ -63,7 +63,9 @@ class RecognitionWorkerTests(unittest.TestCase):
         initialize_database(database_path)
         self.storage = AttendanceStorage(database_path)
         self.storage.add_employee(
-            EmployeeRecord(employee_id="EMP-001", full_name="Ada", created_at=NOW)
+            EmployeeRecord(
+                org_id="default", employee_id="EMP-001", full_name="Ada", created_at=NOW
+            )
         )
         self.storage.add_embedding("EMP-001", make_embedding([1.0, 0.0, 0.0]))
         self.index = EmployeeEmbeddingIndex.from_storage(self.storage)
@@ -117,7 +119,7 @@ class RecognitionWorkerTests(unittest.TestCase):
         self.assertTrue(outcome.match.is_match)
         assert outcome.decision is not None
         self.assertTrue(outcome.decision.logged)
-        self.assertEqual(len(self.storage.list_attendance_events("EMP-001")), 1)
+        self.assertEqual(len(self.storage.list_attendance_events("default", "EMP-001")), 1)
 
     def test_failed_liveness_blocks_attendance(self) -> None:
         detector = RepeatingDetector([make_detected_face()])
@@ -135,7 +137,7 @@ class RecognitionWorkerTests(unittest.TestCase):
         outcome = self.results[0].outcomes[0]
         assert outcome.decision is not None
         self.assertFalse(outcome.decision.logged)
-        self.assertEqual(self.storage.list_attendance_events(), [])
+        self.assertEqual(self.storage.list_attendance_events("default"), [])
 
     def test_unknown_face_gets_no_liveness_or_decision(self) -> None:
         detector = RepeatingDetector([make_detected_face()])

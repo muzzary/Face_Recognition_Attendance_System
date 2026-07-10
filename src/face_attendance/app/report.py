@@ -9,13 +9,16 @@ from face_attendance.storage import AttendanceStorage
 
 def print_attendance_report(
     storage: AttendanceStorage,
+    org_id: str,
     employee_id: str | None = None,
     limit: int = 50,
     on_message: Callable[[str], None] = print,
 ) -> int:
-    """Print recent attendance events; returns the number printed."""
+    """Print recent attendance events for one org; returns the number printed."""
 
-    events = storage.list_attendance_events(employee_id=employee_id, limit=limit)
+    events = storage.list_attendance_events(
+        org_id, employee_id=employee_id, limit=limit
+    )
     if not events:
         scope = f" for {employee_id}" if employee_id else ""
         on_message(f"no attendance events recorded{scope}")
@@ -34,11 +37,13 @@ def print_attendance_report(
 
 
 def print_employees(
-    storage: AttendanceStorage, on_message: Callable[[str], None] = print
+    storage: AttendanceStorage,
+    org_id: str,
+    on_message: Callable[[str], None] = print,
 ) -> int:
-    """Print the employee roster; returns the number of employees."""
+    """Print one org's employee roster; returns the number of employees."""
 
-    employees = storage.list_employees()
+    employees = storage.list_employees(org_id)
     if not employees:
         on_message("no employees enrolled")
         return 0

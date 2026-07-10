@@ -12,7 +12,7 @@ from face_attendance.contracts import (
     LivenessStatus,
     MatchResult,
 )
-from face_attendance.storage import AttendanceStorage
+from face_attendance.storage import DEFAULT_ORG_ID, AttendanceStorage
 
 
 class AttendanceError(RuntimeError):
@@ -39,11 +39,17 @@ class AttendanceService:
       stands in front of the camera.
     """
 
-    def __init__(self, storage: AttendanceStorage, cooldown_seconds: int = 60) -> None:
+    def __init__(
+        self,
+        storage: AttendanceStorage,
+        cooldown_seconds: int = 60,
+        org_id: str = DEFAULT_ORG_ID,
+    ) -> None:
         if cooldown_seconds < 0:
             raise ValueError("cooldown_seconds must be >= 0")
         self._storage = storage
         self._cooldown = timedelta(seconds=cooldown_seconds)
+        self._org_id = org_id
 
     def record(
         self,
@@ -62,7 +68,7 @@ class AttendanceService:
             raise AttendanceError("attendance timestamps must be timezone-aware")
 
         employee_id = match.employee_id
-        last_event = self._storage.get_last_attendance_event(employee_id)
+        last_event = self._storage.get_last_attendance_event(self._org_id, employee_id)
 
         if last_event is not None:
             elapsed = occurred_at - last_event.occurred_at
@@ -81,6 +87,7 @@ class AttendanceService:
             event_type = AttendanceEventType.CLOCK_OUT
 
         event = AttendanceEvent(
+            org_id=self._org_id,
             employee_id=employee_id,
             occurred_at=occurred_at,
             event_type=event_type,

@@ -91,9 +91,9 @@ class EnrollTests(unittest.TestCase):
 
             employee = service.enroll("EMP-001", "Ada Lovelace", samples)
 
-            self.assertEqual(storage.get_employee("EMP-001"), employee)
+            self.assertEqual(storage.get_employee("default", "EMP-001"), employee)
             self.assertEqual(
-                storage.list_embeddings_for_employee("EMP-001"), samples
+                storage.list_embeddings_for_employee("default", "EMP-001"), samples
             )
 
     def test_too_few_samples_rejected(self) -> None:
@@ -131,7 +131,7 @@ class EnrollTests(unittest.TestCase):
             service = make_service(storage)
             service.enroll("EMP-001", "Ada", [make_embedding(), make_embedding()])
 
-            stored = storage.list_embeddings_for_employee("EMP-001")
+            stored = storage.list_embeddings_for_employee("default", "EMP-001")
             for embedding in stored:
                 self.assertTrue(all(isinstance(v, float) for v in embedding.vector))
 

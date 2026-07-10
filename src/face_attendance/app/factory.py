@@ -38,15 +38,20 @@ def build_components(settings: AppSettings) -> PipelineComponents:
     touch the camera (report, list) stay usable either way.
     """
 
+    org_id = settings.org_id
     initialize_database(settings.database_path)
     storage = AttendanceStorage(settings.database_path)
+    # This terminal's org must exist before any write references it (the CLI is
+    # single-org and creates its own org on demand). Uses the org id as the
+    # display name for now; a multi-org UI will name orgs explicitly later.
+    storage.ensure_organization(org_id, org_id)
 
     detector = YuNetDetector(
         model_path=settings.yunet_model_path,
         score_threshold=settings.detection_score_threshold,
     )
-    embedder = SFaceEmbedder(model_path=settings.sface_model_path)
-    index = EmployeeEmbeddingIndex.from_storage(storage)
+    embedder = SFaceEmbedder(model_path=settings.sface_model_path, org_id=org_id)
+    index = EmployeeEmbeddingIndex.from_storage(storage, org_id)
     matcher = EmployeeMatcher(index, similarity_threshold=settings.similarity_threshold)
     liveness = MicroMovementLivenessChecker(
         window_size=settings.liveness_window_size,
@@ -55,11 +60,14 @@ def build_components(settings: AppSettings) -> PipelineComponents:
         min_deformation=settings.liveness_min_deformation,
         max_gap_seconds=settings.liveness_max_gap_seconds,
     )
-    attendance = AttendanceService(storage, cooldown_seconds=settings.cooldown_seconds)
+    attendance = AttendanceService(
+        storage, cooldown_seconds=settings.cooldown_seconds, org_id=org_id
+    )
     enrollment = EnrollmentService(
         detector=detector,
         embedder=embedder,
         storage=storage,
+        org_id=org_id,
         min_detection_confidence=settings.enrollment_min_confidence,
         min_face_size=settings.enrollment_min_face_size,
         required_samples=settings.enrollment_samples,

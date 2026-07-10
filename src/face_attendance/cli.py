@@ -220,17 +220,17 @@ def _dispatch(args: argparse.Namespace, settings: AppSettings) -> int:
     if args.command == "report":
         storage = AttendanceStorage(settings.database_path)
         print_attendance_report(
-            storage, employee_id=args.employee_id, limit=args.limit
+            storage, settings.org_id, employee_id=args.employee_id, limit=args.limit
         )
         return 0
 
     if args.command == "employees":
         storage = AttendanceStorage(settings.database_path)
         if args.employees_command == "list":
-            print_employees(storage)
+            print_employees(storage, settings.org_id)
             return 0
         active = args.employees_command == "activate"
-        storage.set_employee_active(args.employee_id, active)
+        storage.set_employee_active(settings.org_id, args.employee_id, active)
         stamp = datetime.now(timezone.utc).isoformat(timespec="seconds")
         print(f"{args.employee_id} {'re' if active else 'de'}activated at {stamp}")
         return 0

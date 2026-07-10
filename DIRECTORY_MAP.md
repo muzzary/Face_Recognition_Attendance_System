@@ -17,7 +17,7 @@ Last updated: 2026-07-10
 ## Source (`src/face_attendance/`)
 
 - `__init__.py` - package marker.
-- `contracts.py` - Pydantic data contracts: frames, boxes, landmarks, embeddings, employees, matches, liveness, attendance events.
+- `contracts.py` - Pydantic data contracts: frames, boxes, landmarks, embeddings, employees, matches, liveness, attendance events (employee/embedding/attendance records carry a required `org_id` tenant tag).
 - `model_files.py` - pinned ONNX model specs and hash-verified download logic (stdlib only).
 - `cli.py` - `face-attendance` command-line interface (init-db, download-models, enroll, attend, report, employees).
 - `capture/` - `OpenCvCamera`, `FrameSource` protocol, in-memory `Frame`, `CaptureError`.
@@ -27,7 +27,7 @@ Last updated: 2026-07-10
 - `liveness/` - `MicroMovementLivenessChecker`: multi-frame motion + non-rigidity anti-spoofing.
 - `pipeline/` - `LatestFrameSlot` (stale-frame dropping) and `RecognitionWorker` (background recognition thread).
 - `attendance_logging/` - `AttendanceService`: clock-in/out toggling, cooldown, liveness gating. Named to avoid clashing with stdlib `logging`.
-- `storage/` - SQLite schema (WAL, indexes) and `AttendanceStorage` repository.
+- `storage/` - SQLite schema (WAL, indexes, org-scoped tables) and `AttendanceStorage` repository; `migrate_to_org_scoping` upgrades a pre-tenant v2 database to the org-scoped v3 schema in place.
 - `config/` - `AppSettings`: validated runtime configuration with `FA_*` env overrides.
 - `app/` - application flows: `factory.py` (component wiring), `enroll.py`, `attend.py`, `report.py`, `calibrate.py` (per-camera liveness threshold recommendation).
 
@@ -43,6 +43,7 @@ Last updated: 2026-07-10
 - `tests/test_package_import.py` - installable package imports.
 - `tests/test_contracts.py` - contract validation behavior.
 - `tests/test_storage.py` - schema, round trips, foreign keys, no raw-image columns.
+- `tests/test_org_scoping.py` - per-read-method tenant isolation, the v2->v3 migration (zero data loss, default-org tagging), and loud failures on missing/unknown org.
 - `tests/test_capture.py` - camera open/read/corrupt/disconnect error paths.
 - `tests/test_detection.py` - YuNet row conversion, clamping, model-missing errors.
 - `tests/test_enrollment.py` - sample quality gates and enrollment persistence.

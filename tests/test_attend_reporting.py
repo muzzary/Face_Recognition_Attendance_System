@@ -127,6 +127,7 @@ class ReportOutputDedupeTests(unittest.TestCase):
             deformation=0.02,
         )
         event = AttendanceEvent(
+            org_id="default",
             employee_id="EMP-001",
             occurred_at=NOW,
             event_type=AttendanceEventType.CLOCK_IN,

@@ -14,7 +14,7 @@ import numpy as np
 
 from face_attendance.contracts import FaceEmbedding
 from face_attendance.matching.similarity import SimilarityError, normalize_rows
-from face_attendance.storage import AttendanceStorage
+from face_attendance.storage import DEFAULT_ORG_ID, AttendanceStorage
 
 
 class MatchingError(RuntimeError):
@@ -24,25 +24,34 @@ class MatchingError(RuntimeError):
 class EmployeeEmbeddingIndex:
     """Thread-safe snapshot of all active employees' embeddings."""
 
-    def __init__(self, entries: list[tuple[str, FaceEmbedding]]) -> None:
+    def __init__(
+        self,
+        entries: list[tuple[str, FaceEmbedding]],
+        org_id: str = DEFAULT_ORG_ID,
+    ) -> None:
         self._lock = threading.Lock()
+        self._org_id = org_id
         self._employee_ids: list[str] = []
         self._matrix: np.ndarray | None = None
         self._dimensions: int | None = None
         self._swap(_build_snapshot(entries))
 
     @classmethod
-    def from_storage(cls, storage: AttendanceStorage) -> EmployeeEmbeddingIndex:
-        return cls(storage.list_active_embeddings())
+    def from_storage(
+        cls, storage: AttendanceStorage, org_id: str = DEFAULT_ORG_ID
+    ) -> EmployeeEmbeddingIndex:
+        return cls(storage.list_active_embeddings(org_id), org_id)
 
     def refresh_from_storage(self, storage: AttendanceStorage) -> None:
         """Rebuild the snapshot after enrollments or deactivations.
 
         The new snapshot is built fully before the swap, so a failed rebuild
         (bad data in storage) raises and leaves the last good gallery serving.
+        Stays scoped to this index's org, so a refresh never pulls in another
+        tenant's employees.
         """
 
-        snapshot = _build_snapshot(storage.list_active_embeddings())
+        snapshot = _build_snapshot(storage.list_active_embeddings(self._org_id))
         self._swap(snapshot)
 
     def _swap(

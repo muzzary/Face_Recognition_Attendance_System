@@ -33,7 +33,7 @@ def run_enrollment(
     required = service.required_samples
     gap = settings.enrollment_frame_gap
 
-    if components.storage.get_employee(employee_id) is not None:
+    if components.storage.get_employee(settings.org_id, employee_id) is not None:
         raise EnrollmentError(f"employee {employee_id} is already enrolled")
 
     samples: list[FaceEmbedding] = []

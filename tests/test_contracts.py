@@ -36,11 +36,13 @@ class ContractTests(unittest.TestCase):
             detection_confidence=0.94,
         )
         embedding = FaceEmbedding(
+            org_id="default",
             vector=[0.1, 0.2, 0.3],
             dimensions=3,
             model_name="demo-model",
         )
         employee = EmployeeRecord(
+            org_id="default",
             employee_id="EMP-001",
             full_name="Test Employee",
             created_at=NOW,
@@ -59,6 +61,7 @@ class ContractTests(unittest.TestCase):
             confidence_score=0.8,
         )
         event = AttendanceEvent(
+            org_id="default",
             employee_id=employee.employee_id,
             occurred_at=NOW,
             event_type=AttendanceEventType.CLOCK_IN,
@@ -111,6 +114,7 @@ class ContractTests(unittest.TestCase):
     def test_naive_timestamps_are_rejected(self) -> None:
         with self.assertRaises(ValidationError):
             AttendanceEvent(
+                org_id="default",
                 employee_id="EMP-001",
                 occurred_at=datetime(2026, 7, 6, 12, 0),
                 event_type=AttendanceEventType.CLOCK_IN,
@@ -121,6 +125,7 @@ class ContractTests(unittest.TestCase):
     def test_embedding_dimension_must_match_vector_length(self) -> None:
         with self.assertRaises(ValidationError):
             FaceEmbedding(
+                org_id="default",
                 vector=[0.1, 0.2],
                 dimensions=3,
                 model_name="demo-model",
@@ -129,6 +134,7 @@ class ContractTests(unittest.TestCase):
     def test_embedding_values_must_be_finite(self) -> None:
         with self.assertRaises(ValidationError):
             FaceEmbedding(
+                org_id="default",
                 vector=[0.1, math.inf],
                 dimensions=2,
                 model_name="demo-model",

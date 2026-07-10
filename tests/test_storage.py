@@ -23,16 +23,19 @@ class StorageTests(unittest.TestCase):
             storage = AttendanceStorage(database_path)
 
             employee = EmployeeRecord(
+                org_id="default",
                 employee_id="EMP-001",
                 full_name="Test Employee",
                 created_at=NOW,
             )
             embedding = FaceEmbedding(
+                org_id="default",
                 vector=[0.11, 0.22, 0.33],
                 dimensions=3,
                 model_name="demo-model",
             )
             event = AttendanceEvent(
+                org_id="default",
                 employee_id=employee.employee_id,
                 occurred_at=NOW,
                 event_type=AttendanceEventType.CLOCK_IN,
@@ -46,10 +49,18 @@ class StorageTests(unittest.TestCase):
 
             self.assertGreater(embedding_id, 0)
             self.assertGreater(event_id, 0)
-            self.assertEqual(storage.get_employee(employee.employee_id), employee)
-            self.assertEqual(storage.list_embeddings_for_employee(employee.employee_id), [embedding])
-            self.assertEqual(storage.list_active_embeddings(), [(employee.employee_id, embedding)])
-            self.assertEqual(storage.list_attendance_events(employee.employee_id), [event])
+            self.assertEqual(storage.get_employee("default", employee.employee_id), employee)
+            self.assertEqual(
+                storage.list_embeddings_for_employee("default", employee.employee_id),
+                [embedding],
+            )
+            self.assertEqual(
+                storage.list_active_embeddings("default"),
+                [(employee.employee_id, embedding)],
+            )
+            self.assertEqual(
+                storage.list_attendance_events("default", employee.employee_id), [event]
+            )
 
     def test_database_schema_has_no_raw_image_columns(self) -> None:
         with TemporaryDirectory() as temp_dir:
@@ -76,11 +87,13 @@ class StorageTests(unittest.TestCase):
             initialize_database(database_path)
             storage = AttendanceStorage(database_path)
             embedding = FaceEmbedding(
+                org_id="default",
                 vector=[0.1],
                 dimensions=1,
                 model_name="demo-model",
             )
             event = AttendanceEvent(
+                org_id="default",
                 employee_id="EMP-404",
                 occurred_at=NOW,
                 event_type=AttendanceEventType.CLOCK_IN,

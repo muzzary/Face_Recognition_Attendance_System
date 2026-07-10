@@ -21,9 +21,12 @@ SFACE_MODEL_NAME = "sface-2021dec"
 class SFaceEmbedder:
     """EmbeddingExtractor backed by cv2.FaceRecognizerSF."""
 
-    def __init__(self, model_path: str | Path) -> None:
+    def __init__(self, model_path: str | Path, org_id: str) -> None:
         self._model_path = Path(model_path)
         self._recognizer: object | None = None
+        # Every embedding this terminal produces belongs to its org, whether it
+        # is stored (enrollment) or a transient match probe.
+        self._org_id = org_id
 
     @property
     def model_name(self) -> str:
@@ -71,6 +74,7 @@ class SFaceEmbedder:
             raise EmbeddingError("SFace produced an empty or non-finite embedding")
 
         return FaceEmbedding(
+            org_id=self._org_id,
             vector=[float(value) for value in vector],
             dimensions=int(vector.size),
             model_name=SFACE_MODEL_NAME,

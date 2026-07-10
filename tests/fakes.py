@@ -107,11 +107,15 @@ def make_detected_face(
 
 
 def make_embedding(
-    vector: list[float] | None = None, model_name: str = "fake-model"
+    vector: list[float] | None = None,
+    model_name: str = "fake-model",
+    org_id: str = "default",
 ) -> FaceEmbedding:
     if vector is None:
         vector = [1.0, 0.0, 0.0, 0.0]
-    return FaceEmbedding(vector=vector, dimensions=len(vector), model_name=model_name)
+    return FaceEmbedding(
+        org_id=org_id, vector=vector, dimensions=len(vector), model_name=model_name
+    )
 
 
 class FakeDetector:
@@ -203,14 +207,15 @@ class RepeatingDetector:
 
 
 class RepeatingEmbedder:
-    """Returns the same embedding for every face."""
+    """Returns the same embedding for every face, stamped with one org."""
 
-    def __init__(self, vector: list[float]) -> None:
+    def __init__(self, vector: list[float], org_id: str = "default") -> None:
         self._vector = vector
+        self._org_id = org_id
 
     @property
     def model_name(self) -> str:
         return "fake-model"
 
     def extract(self, frame: Frame, face: DetectedFace) -> FaceEmbedding:
-        return make_embedding(self._vector)
+        return make_embedding(self._vector, org_id=self._org_id)

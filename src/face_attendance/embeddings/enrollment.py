@@ -10,7 +10,7 @@ from face_attendance.contracts import DetectedFace, EmployeeRecord, FaceEmbeddin
 from face_attendance.detection.base import FaceDetector
 from face_attendance.embeddings.base import EmbeddingExtractor
 from face_attendance.matching.similarity import cosine_similarity
-from face_attendance.storage import AttendanceStorage
+from face_attendance.storage import DEFAULT_ORG_ID, AttendanceStorage
 
 
 class EnrollmentError(RuntimeError):
@@ -30,6 +30,7 @@ class EnrollmentService:
         detector: FaceDetector,
         embedder: EmbeddingExtractor,
         storage: AttendanceStorage,
+        org_id: str = DEFAULT_ORG_ID,
         min_detection_confidence: float = 0.85,
         min_face_size: int = 80,
         required_samples: int = 5,
@@ -40,6 +41,7 @@ class EnrollmentService:
         self._detector = detector
         self._embedder = embedder
         self._storage = storage
+        self._org_id = org_id
         self._min_detection_confidence = min_detection_confidence
         self._min_face_size = min_face_size
         self._required_samples = required_samples
@@ -78,10 +80,11 @@ class EnrollmentService:
             )
         self._require_consistency(samples)
 
-        if self._storage.get_employee(employee_id) is not None:
+        if self._storage.get_employee(self._org_id, employee_id) is not None:
             raise EnrollmentError(f"employee {employee_id} is already enrolled")
 
         employee = EmployeeRecord(
+            org_id=self._org_id,
             employee_id=employee_id,
             full_name=full_name,
             created_at=datetime.now(timezone.utc),

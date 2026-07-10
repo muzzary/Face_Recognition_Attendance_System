@@ -30,6 +30,12 @@ class AppSettings(BaseModel):
     models_dir: Path = Path("models")
     log_dir: Path = Path("logs")
 
+    # Organization (tenant). Every row this terminal reads or writes is scoped
+    # to this org. The CLI is single-org today, so it defaults to the built-in
+    # "default" organization (matches storage.DEFAULT_ORG_ID); a deployment
+    # running for a specific company sets FA_ORG_ID to that company's id.
+    org_id: str = Field(default="default", min_length=1)
+
     # Camera. Backend "auto" tries the platform default, then falls back to
     # DirectShow on Windows (some webcams open under MSMF but deliver nothing).
     camera_index: int = Field(default=0, ge=0)

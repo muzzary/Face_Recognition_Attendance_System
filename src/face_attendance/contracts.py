@@ -101,6 +101,7 @@ class DetectedFace(StrictModel):
 class FaceEmbedding(StrictModel):
     """Numeric face embedding produced by an embedding model."""
 
+    org_id: str = Field(min_length=1)
     vector: list[float] = Field(min_length=1)
     dimensions: int = Field(gt=0)
     model_name: str = Field(min_length=1)
@@ -122,6 +123,7 @@ class FaceEmbedding(StrictModel):
 class EmployeeRecord(StrictModel):
     """Employee metadata stored alongside one or more embeddings."""
 
+    org_id: str = Field(min_length=1)
     employee_id: str = Field(min_length=1)
     full_name: str = Field(min_length=1)
     is_active: bool = True
@@ -177,6 +179,7 @@ class LivenessResult(StrictModel):
 class AttendanceEvent(StrictModel):
     """Secure attendance log payload with no image data."""
 
+    org_id: str = Field(min_length=1)
     employee_id: str = Field(min_length=1)
     occurred_at: datetime
     event_type: AttendanceEventType
