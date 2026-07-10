@@ -2,10 +2,9 @@ import { FormEvent, useEffect, useMemo, useState } from "react";
 import "./App.css";
 
 // Phase 6: role-appropriate dashboards on top of the Phase 5 auth gate. The org
-// id is still a single hardcoded tenant (seed it with
-// `python scripts/seed_dev_data.py`, which creates the "acme" org and the
-// admin@acme.test / manager@acme.test / employee@acme.test dev logins).
-const ORG_ID = "acme";
+// id comes from the logged-in user's own token (see decodeToken), so each tenant
+// hits its own API scope. Seed dev logins with `python scripts/seed_dev_data.py`
+// (creates the "acme" org and admin@/manager@/employee@acme.test).
 const API_BASE = "http://127.0.0.1:8000";
 const ATTENDANCE_LIMIT = 100;
 const TOKEN_KEY = "fa_access_token";
@@ -49,6 +48,14 @@ function decodeToken(token: string): TokenClaims | null {
   }
 }
 
+// Carries the HTTP status so callers can distinguish 401 (bad/expired
+// credential -> force re-login) from other failures like 403 (wrong permissions).
+class ApiError extends Error {
+  constructor(readonly status: number) {
+    super(`API responded ${status}`);
+  }
+}
+
 async function fetchJson<T>(
   path: string,
   token: string,
@@ -61,7 +68,7 @@ async function fetchJson<T>(
     headers,
   });
   if (!response.ok) {
-    throw new Error(`API responded ${response.status}`);
+    throw new ApiError(response.status);
   }
   return (await response.json()) as T;
 }
@@ -189,7 +196,7 @@ function AttendanceTable({
 // MJPEG renders natively in a plain <img>, which cannot set an Authorization
 // header. Fetch a one-minute, stream-only ticket with the access-token header;
 // only that restricted credential enters the image URL.
-function LiveFeed({ token }: { token: string }) {
+function LiveFeed({ token, orgId }: { token: string; orgId: string }) {
   const [ticket, setTicket] = useState<string | null>(null);
   const [failed, setFailed] = useState(false);
 
@@ -198,7 +205,7 @@ function LiveFeed({ token }: { token: string }) {
     async function loadTicket() {
       try {
         const result = await fetchJson<{ ticket: string }>(
-          `/orgs/${ORG_ID}/stream-ticket`,
+          `/orgs/${orgId}/stream-ticket`,
           token,
           { method: "POST" },
         );
@@ -211,10 +218,10 @@ function LiveFeed({ token }: { token: string }) {
     return () => {
       cancelled = true;
     };
-  }, [token]);
+  }, [token, orgId]);
 
   const src = ticket
-    ? `${API_BASE}/orgs/${ORG_ID}/stream?ticket=${encodeURIComponent(ticket)}`
+    ? `${API_BASE}/orgs/${orgId}/stream?ticket=${encodeURIComponent(ticket)}`
     : null;
   return (
     <section className="card">
@@ -239,7 +246,15 @@ function LiveFeed({ token }: { token: string }) {
 
 // admin and manager share the same full-org scope (a documented Phase 5
 // simplification - no team hierarchy is modeled yet).
-function AdminDashboard({ token }: { token: string }) {
+function AdminDashboard({
+  token,
+  orgId,
+  onUnauthorized,
+}: {
+  token: string;
+  orgId: string;
+  onUnauthorized: () => void;
+}) {
   const [employees, setEmployees] = useState<EmployeeRecord[]>([]);
   const [events, setEvents] = useState<AttendanceEvent[]>([]);
   const [filter, setFilter] = useState("");
@@ -251,17 +266,24 @@ function AdminDashboard({ token }: { token: string }) {
     async function load() {
       try {
         const [roster, attendance] = await Promise.all([
-          fetchJson<EmployeeRecord[]>(`/orgs/${ORG_ID}/employees`, token),
+          fetchJson<EmployeeRecord[]>(`/orgs/${orgId}/employees`, token),
           fetchJson<AttendanceEvent[]>(
-            `/orgs/${ORG_ID}/attendance?limit=${ATTENDANCE_LIMIT}`,
+            `/orgs/${orgId}/attendance?limit=${ATTENDANCE_LIMIT}`,
             token,
           ),
         ]);
         if (cancelled) return;
         setEmployees(roster);
         setEvents(attendance);
-      } catch {
-        if (!cancelled) setError("Failed to reach API");
+      } catch (err) {
+        if (cancelled) return;
+        // A 401 means the stored token is bad/expired: drop it and bounce to
+        // login. Any other failure (e.g. 403) keeps the session and just reports.
+        if (err instanceof ApiError && err.status === 401) {
+          onUnauthorized();
+          return;
+        }
+        setError("Failed to reach API");
       } finally {
         if (!cancelled) setLoading(false);
       }
@@ -270,7 +292,7 @@ function AdminDashboard({ token }: { token: string }) {
     return () => {
       cancelled = true;
     };
-  }, [token]);
+  }, [token, orgId, onUnauthorized]);
 
   const visibleEvents = useMemo(
     () => (filter ? events.filter((e) => e.employee_id === filter) : events),
@@ -287,7 +309,7 @@ function AdminDashboard({ token }: { token: string }) {
 
   return (
     <>
-      <LiveFeed token={token} />
+      <LiveFeed token={token} orgId={orgId} />
 
       <section className="card">
         <h2>Employees</h2>
@@ -354,7 +376,15 @@ function lastEventTime(events: AttendanceEvent[], type: string): string | null {
 // Self-service view: the employee never touches the roster route (the API 403s
 // it), and all stats are derived client-side from the events the API already
 // scopes to them - no new backend endpoints.
-function EmployeeDashboard({ token }: { token: string }) {
+function EmployeeDashboard({
+  token,
+  orgId,
+  onUnauthorized,
+}: {
+  token: string;
+  orgId: string;
+  onUnauthorized: () => void;
+}) {
   const [events, setEvents] = useState<AttendanceEvent[]>([]);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
@@ -366,12 +396,19 @@ function EmployeeDashboard({ token }: { token: string }) {
         // No employee_id param needed: the API forces the filter to the
         // caller's own id for employee-role tokens.
         const attendance = await fetchJson<AttendanceEvent[]>(
-          `/orgs/${ORG_ID}/attendance?limit=${ATTENDANCE_LIMIT}`,
+          `/orgs/${orgId}/attendance?limit=${ATTENDANCE_LIMIT}`,
           token,
         );
         if (!cancelled) setEvents(attendance);
-      } catch {
-        if (!cancelled) setError("Failed to reach API");
+      } catch (err) {
+        if (cancelled) return;
+        // A 401 means the stored token is bad/expired: drop it and bounce to
+        // login. Any other failure (e.g. 403) keeps the session and just reports.
+        if (err instanceof ApiError && err.status === 401) {
+          onUnauthorized();
+          return;
+        }
+        setError("Failed to reach API");
       } finally {
         if (!cancelled) setLoading(false);
       }
@@ -380,7 +417,7 @@ function EmployeeDashboard({ token }: { token: string }) {
     return () => {
       cancelled = true;
     };
-  }, [token]);
+  }, [token, orgId, onUnauthorized]);
 
   const daysPresent = useMemo(
     () => new Set(events.map((e) => e.occurred_at.slice(0, 10))).size,
@@ -441,9 +478,17 @@ function Dashboard({
       <Header claims={claims} onLogout={onLogout} />
       <main className="content">
         {claims.role === "employee" ? (
-          <EmployeeDashboard token={token} />
+          <EmployeeDashboard
+            token={token}
+            orgId={claims.org_id}
+            onUnauthorized={onLogout}
+          />
         ) : (
-          <AdminDashboard token={token} />
+          <AdminDashboard
+            token={token}
+            orgId={claims.org_id}
+            onUnauthorized={onLogout}
+          />
         )}
       </main>
     </>

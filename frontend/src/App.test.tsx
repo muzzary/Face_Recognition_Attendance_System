@@ -31,6 +31,14 @@ const employeeToken = makeToken({
   employee_id: "EMP-001",
 });
 
+// A different tenant, to prove URLs follow the token's org_id, not a constant.
+const globexAdminToken = makeToken({
+  sub: "admin@globex.test",
+  org_id: "globex",
+  role: "admin",
+  employee_id: null,
+});
+
 beforeEach(() => {
   localStorage.clear();
 });
@@ -245,6 +253,55 @@ describe("Login and logout", () => {
     ).toBeInTheDocument();
     expect(localStorage.getItem(TOKEN_KEY)).toBeNull();
     expect(screen.queryByText("Ada Lovelace")).not.toBeInTheDocument();
+  });
+
+  it("targets the org_id decoded from the token, not a hardcoded tenant", async () => {
+    localStorage.setItem(TOKEN_KEY, globexAdminToken);
+    const fetchMock = mockFetch((url) =>
+      url.includes("/employees") ? employees : events,
+    );
+    render(<App />);
+
+    await screen.findByAltText("Live camera feed");
+    const urls = fetchMock.mock.calls.map((c) => String(c[0]));
+    expect(urls.some((u) => u.includes("/orgs/globex/employees"))).toBe(true);
+    expect(urls.some((u) => u.includes("/orgs/globex/attendance"))).toBe(true);
+    expect(urls.some((u) => u.includes("/orgs/globex/stream-ticket"))).toBe(
+      true,
+    );
+    // Never falls back to the retired hardcoded "acme" org.
+    expect(urls.some((u) => u.includes("/orgs/acme/"))).toBe(false);
+  });
+
+  it("clears the token and returns to login on a 401", async () => {
+    localStorage.setItem(TOKEN_KEY, employeeToken);
+    vi.stubGlobal(
+      "fetch",
+      vi.fn(async () => ({ ok: false, status: 401, json: async () => ({}) })),
+    );
+    render(<App />);
+
+    expect(
+      await screen.findByRole("button", { name: "Sign in" }),
+    ).toBeInTheDocument();
+    expect(localStorage.getItem(TOKEN_KEY)).toBeNull();
+  });
+
+  it("keeps the session and reports an error on a 403 (no logout)", async () => {
+    localStorage.setItem(TOKEN_KEY, employeeToken);
+    vi.stubGlobal(
+      "fetch",
+      vi.fn(async () => ({ ok: false, status: 403, json: async () => ({}) })),
+    );
+    render(<App />);
+
+    await waitFor(() =>
+      expect(screen.getByRole("alert")).toHaveTextContent("Failed to reach API"),
+    );
+    expect(localStorage.getItem(TOKEN_KEY)).toBe(employeeToken);
+    expect(
+      screen.queryByRole("button", { name: "Sign in" }),
+    ).not.toBeInTheDocument();
   });
 
   it("shows an error and stays on the form when login fails", async () => {

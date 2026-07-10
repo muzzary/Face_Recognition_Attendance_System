@@ -271,3 +271,75 @@ on restart, so the pre-fix process was not sufficient evidence on its own).
 Implementation commit: pending (see below)
 
 Push status: pending
+
+## Phase 4 - Make the Frontend Actually Multi-Tenant and Clear Expired Tokens
+
+Date: 2026-07-11
+
+Status: implemented, verified (automated), reviewed, committed, pushed, awaiting manual checkpoint
+
+### Findings resolved
+
+1. The frontend hardcoded `const ORG_ID = "acme"` and built every API URL from
+   it, ignoring the org of the user who actually logged in. Any non-"acme"
+   tenant could authenticate but then received `403` on every subsequent
+   request, because the token's real `org_id` never matched the hardcoded URL.
+   This failed safely (the backend still enforced the org match, so no
+   cross-tenant data leak), but the advertised multi-tenant frontend worked only
+   for org "acme".
+2. A `401` from an authenticated fetch (expired or otherwise invalid token) only
+   rendered "Failed to reach API" while the stale token stayed in
+   `localStorage`, stranding the user on an error page with no route back to
+   login short of manually clearing storage.
+
+### Implementation
+
+- Removed the `ORG_ID` constant. The org id now comes from the already-present
+  client-side JWT decode (`decodeToken`/`TokenClaims`), threaded as an `orgId`
+  prop from `claims.org_id` into `AdminDashboard`, `EmployeeDashboard`, and
+  `LiveFeed`, and used in every employees/attendance/stream-ticket/stream URL.
+  Because `claims` is derived fresh from the active token on each render, a
+  logout/login as a different tenant automatically retargets every request; the
+  org is never cached separately from the token.
+- Added a small `ApiError` carrying the HTTP status so callers can tell `401`
+  (bad/expired credential) apart from other failures. `fetchJson` now throws it.
+- On a `401`, both dashboards call `onUnauthorized` (wired to the same `logout`
+  that "Sign out" uses), clearing the stored token and returning to the login
+  form. A `403` (valid token, wrong permissions) deliberately does not log out -
+  it keeps the session and shows the existing "Failed to reach API" state.
+
+### Automated verification
+
+- Frontend `npm test`: 15 tests passed (12 before this phase; +3). New tests
+  prove: employees/attendance/stream-ticket URLs carry the token's `org_id`
+  ("globex") and never fall back to "acme"; a `401` clears the token and returns
+  to the login form; a `403` keeps the token and shows the error without
+  bouncing to login.
+- Frontend `npm run build` (`tsc && vite build`): clean, no TypeScript errors.
+- No browser automation was available this session, so the running UI was not
+  visually confirmed; the behavior was exercised through the real component tree
+  (`App` -> `Dashboard` -> role dashboards -> `fetchJson`) under jsdom with
+  mocked fetch, which drives the same code path.
+
+### Self-review
+
+- Correctness: reviewed, clean. `orgId` and `onUnauthorized` are threaded from
+  the active token's claims; the 401/403 branch keys off `ApiError.status`.
+- Security: reviewed, clean for these findings. No credential enters a URL (the
+  Phase 3 stream-ticket flow is unchanged); the org id is now the caller's own.
+- Reuse/simplification: reviewed, clean. Extends the existing decode pattern and
+  the existing `logout`; every added prop is load-bearing.
+- Efficiency: reviewed, clean. No extra fetches or renders.
+- Dependencies: no dependency changes.
+
+### Files changed
+
+- `frontend/src/App.tsx`
+- `frontend/src/App.test.tsx`
+- `CODEX_AUDIT.md`
+
+### Delivery
+
+Implementation commit: pending (see git history)
+
+Push status: pending
