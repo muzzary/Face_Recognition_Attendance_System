@@ -8,7 +8,7 @@ left unchanged for the owner to update later.
 
 Date: 2026-07-11
 
-Status: implemented, verified, reviewed, ready for manual checkpoint
+Status: implemented, verified, reviewed, committed, pushed, awaiting manual checkpoint
 
 ### Finding resolved
 
@@ -71,5 +71,6 @@ same employee ID.
 
 ### Delivery
 
-Planned commit message: `Enforce tenant integrity in SQLite`
+Implementation commit: `546d6c6 Enforce tenant integrity in SQLite`
 
+Push status: pushed to `origin/main`
