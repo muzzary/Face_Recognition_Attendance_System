@@ -13,7 +13,10 @@ from __future__ import annotations
 
 import threading
 from dataclasses import dataclass, field
-from typing import Callable
+from typing import TYPE_CHECKING, Callable
+
+if TYPE_CHECKING:
+    import numpy as np
 
 from face_attendance.attendance_logging import AttendanceDecision, AttendanceService
 from face_attendance.capture import Frame
@@ -77,6 +80,13 @@ class RecognitionOutput:
 
     frame: FrameMetadata
     outcomes: list[FaceOutcome] = field(default_factory=list)
+    # The exact frame pixels these outcomes were computed from. The display
+    # layer draws boxes onto this image rather than whatever newer frame the
+    # non-blocking capture loop has since advanced to, so labels never drift
+    # onto a mismatched frame under inference lag. Excluded from equality
+    # (ndarray comparison is ambiguous) and defaulted so reporting-only
+    # constructions need not supply it.
+    image: np.ndarray | None = field(default=None, compare=False)
 
 
 class LivenessObserver:
@@ -178,4 +188,6 @@ class RecognitionWorker(threading.Thread):
             outcomes.append(
                 FaceOutcome(face=face, match=match, liveness=liveness, decision=decision)
             )
-        return RecognitionOutput(frame=frame.metadata, outcomes=outcomes)
+        return RecognitionOutput(
+            frame=frame.metadata, outcomes=outcomes, image=frame.image
+        )

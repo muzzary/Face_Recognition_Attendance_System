@@ -6,11 +6,16 @@ from pathlib import Path
 from tempfile import TemporaryDirectory
 from unittest.mock import patch
 
+import numpy as np
+
 from face_attendance.app import (
     PipelineComponents,
+    draw_overlay,
     run_attendance,
     run_enrollment,
 )
+from face_attendance.contracts import MatchResult
+from face_attendance.pipeline import FaceOutcome, RecognitionOutput
 from face_attendance.attendance_logging import AttendanceService
 from face_attendance.cli import main
 from face_attendance.config import AppSettings
@@ -251,6 +256,72 @@ class CliTests(unittest.TestCase):
                 exit_code = main(["calibrate-liveness"])
 
             self.assertEqual(exit_code, 1)
+
+
+class DrawOverlayAlignmentTests(unittest.TestCase):
+    """draw_overlay must annotate the frame a result was computed from, never
+    whatever newer frame the non-blocking loop advanced to under inference lag.
+    """
+
+    def _matched_output(self, source_frame) -> RecognitionOutput:
+        face = make_detected_face(source_frame, x=8, y=8, width=16, height=16)
+        match = MatchResult(
+            is_match=True,
+            employee_id="EMP-001",
+            distance=0.2,
+            threshold=0.637,
+            confidence_score=0.8,
+        )
+        return RecognitionOutput(
+            frame=source_frame.metadata,
+            outcomes=[FaceOutcome(face=face, match=match)],
+            image=source_frame.image,
+        )
+
+    def test_overlay_drawn_on_result_frame_not_newer_camera_frame(self) -> None:
+        # The result was computed from frame 0 (fill 50); the loop has since
+        # advanced to frame 5 (fill 200). A far-corner pixel proves which frame
+        # the boxes were painted onto.
+        computed_from = make_frame(
+            frame_id=0, image=np.full((48, 64, 3), 50, dtype=np.uint8)
+        )
+        newest = make_frame(
+            frame_id=5, image=np.full((48, 64, 3), 200, dtype=np.uint8)
+        )
+        output = self._matched_output(computed_from)
+
+        result = draw_overlay(newest, output)
+
+        # Background (outside the box) reflects the result's own frame, not the
+        # newer camera frame the boxes would otherwise have drifted onto.
+        self.assertEqual(int(result[47, 63, 0]), 50)
+        # The source frames must be left untouched (draw_overlay copies).
+        self.assertEqual(int(computed_from.image[8, 8, 0]), 50)
+        self.assertEqual(int(newest.image[8, 8, 0]), 200)
+
+    def test_no_result_falls_back_to_current_frame_unannotated(self) -> None:
+        newest = make_frame(
+            frame_id=5, image=np.full((48, 64, 3), 200, dtype=np.uint8)
+        )
+
+        result = draw_overlay(newest, None)
+
+        self.assertTrue(np.array_equal(result, newest.image))
+
+    def test_output_without_image_falls_back_to_current_frame(self) -> None:
+        # A result carrying no image (e.g. legacy construction) degrades to the
+        # old behavior: annotate the frame handed in, never crash.
+        newest = make_frame(
+            frame_id=5, image=np.full((48, 64, 3), 200, dtype=np.uint8)
+        )
+        output = RecognitionOutput(
+            frame=newest.metadata,
+            outcomes=self._matched_output(newest).outcomes,
+        )
+
+        result = draw_overlay(newest, output)
+
+        self.assertEqual(int(result[47, 63, 0]), 200)
 
 
 if __name__ == "__main__":

@@ -224,7 +224,15 @@ def _liveness_metrics_suffix(liveness: LivenessResult | None) -> str:
 def draw_overlay(
     frame: Frame, latest_output: RecognitionOutput | None
 ) -> "np.ndarray":
-    """Return a copy of the frame image annotated with recognition results.
+    """Return a copy of the annotated recognition frame.
+
+    Boxes are drawn onto the exact frame ``latest_output`` was computed from
+    (``latest_output.image``), not onto ``frame`` - under inference lag the
+    newest camera frame has moved on from the frame the boxes describe, so
+    drawing on it would drift labels onto the wrong person. ``frame`` is used
+    only as the clean fallback before the first result arrives. The displayed
+    video therefore lags slightly when inference is behind, but boxes always
+    align to the pixels shown.
 
     Boxes/labels are colored by outcome: green when an event was logged, red on
     a failed liveness check, amber on a match still gathering evidence, grey for
@@ -234,7 +242,12 @@ def draw_overlay(
 
     import cv2
 
-    image = frame.image.copy()
+    source = (
+        latest_output.image
+        if latest_output is not None and latest_output.image is not None
+        else frame.image
+    )
+    image = source.copy()
     if latest_output is not None:
         for outcome in latest_output.outcomes:
             box = outcome.face.bounding_box

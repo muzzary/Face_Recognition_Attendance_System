@@ -343,3 +343,95 @@ Status: implemented, verified (automated), reviewed, committed, pushed, awaiting
 Implementation commit: pending (see git history)
 
 Push status: pending
+
+## Phase 5 - Align Overlay Boxes to the Frame They Were Computed From
+
+Date: 2026-07-11
+
+Status: implemented, verified, reviewed, committed, pushed, awaiting manual checkpoint
+
+### Finding resolved
+
+The non-blocking capture loop drew the most recent completed `RecognitionOutput`
+onto whatever the newest camera frame happened to be, not onto the frame that
+output was actually computed from. Because recognition always lags the camera by
+at least one frame (and more under load), the boxes and employee-name labels
+were painted onto a frame that had already moved on - visually the boxes drift
+and can appear to label the wrong person. The attendance decision itself was
+never affected (it is made on the worker thread from the correct frame); this
+was purely a display-alignment bug. It affected both the CLI `attend` preview
+window and the API's live MJPEG stream, because both draw through the shared
+`draw_overlay`.
+
+### Option chosen
+
+Option A (retain the computed-from frame), not Option B (a frame-id-equality
+guard that skips the overlay on mismatch). Option B was rejected on measurement:
+because recognition lags by at least one frame essentially always, a
+skip-on-mismatch guard would suppress the overlay on almost every displayed
+frame - an end-to-end run under induced lag showed 24 of 25 iterations lagged,
+so boxes would have been blanked 24/25 of the time, destroying the feature.
+Option A keeps boxes always visible and always aligned; the displayed video
+simply lags slightly when inference is behind.
+
+### Implementation
+
+- Added an optional `image` field to the internal `RecognitionOutput`
+  (default `None`, `compare=False` so the ndarray never enters dataclass
+  equality). The worker now stamps each output with the exact frame pixels it
+  was computed from. Chosen over changing the worker's `on_result` callback
+  signature, which would have rippled through every pipeline test.
+- `draw_overlay` now annotates `latest_output.image` (the frame the result
+  describes) instead of the freshly-read camera frame, falling back to the
+  handed-in frame only when there is no result yet or the result carries no
+  image. Both display surfaces share this function, so the CLI preview and the
+  MJPEG stream are fixed at one site.
+- No change to matching, liveness, or attendance logic; no change to the
+  latest-frame-wins / non-blocking guarantees (the capture loop still
+  read -> put -> drain -> draw, the worker still owns inference, and
+  `LatestFrameSlot` is untouched). The `outputs` deque is drained every capture
+  iteration, so retaining a frame image per output stays bounded.
+
+### Automated verification
+
+- Changed-file suite (`test_app`, `test_pipeline`, `test_streaming`,
+  `test_attend_reporting`): 39 passed.
+- Full Python regression suite: 217 passed in 41.45 seconds.
+- New `DrawOverlayAlignmentTests` prove: a stale result is drawn onto its own
+  frame (a far-corner pixel matches the result's frame fill, not the newer
+  camera frame's), the source frames are left untouched, a `None` result falls
+  back to a clean unannotated current frame, and a result carrying no image
+  degrades to annotating the current frame without crashing.
+- End-to-end drive of the real `run_attendance` loop with a deliberately slow
+  detector: across 25 iterations, all 24 lagged iterations drew their own output
+  frame and in every one the drawn frame differed from the newest camera frame,
+  confirming the pre-fix mismatch is gone.
+- The actual visual "boxes track the right person smoothly" confirmation on a
+  live webcam remains a manual checkpoint (no browser/camera automation this
+  session), consistent with prior phases.
+
+### Self-review
+
+- Correctness: reviewed, clean. The overlay's image source and its box outcomes
+  now come from the same `RecognitionOutput`, so they cannot describe different
+  frames.
+- Concurrency: reviewed, clean. No new blocking or backpressure; the capture
+  loop and `LatestFrameSlot` discipline are unchanged.
+- Reuse/simplification: reviewed, clean. Fixed at the one shared `draw_overlay`;
+  the new field is defaulted so no existing construction site changed.
+- Efficiency: reviewed, clean. Still one image copy per draw; the retained
+  per-output image is bounded by the per-iteration drain.
+- Dependencies: no dependency changes.
+
+### Files changed
+
+- `src/face_attendance/pipeline/worker.py`
+- `src/face_attendance/app/attend.py`
+- `tests/test_app.py`
+- `CODEX_AUDIT.md`
+
+### Delivery
+
+Implementation commit: pending (see git history)
+
+Push status: pending
