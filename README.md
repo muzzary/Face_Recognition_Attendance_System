@@ -166,9 +166,9 @@ Attendance is **never** logged until liveness passes; an incomplete window is UN
 
 - Biometric data is stored **only as numeric embeddings**; raw frames live in memory and are discarded. The schema is tested to contain no image/photo/raw/bytes columns.
 - **Tenant isolation:** every employee, embedding, and attendance row carries an `org_id` (foreign-keyed to an `organizations` table), and every storage read filters by it — one organization's data can never surface in another's queries (tested per read method). The CLI is single-org today via `FA_ORG_ID` (defaults to the built-in `default` org). An existing pre-org (v2) database is upgraded in place with `migrate_to_org_scoping`, which backfills all existing rows to the default org with zero data loss.
-- Original faces cannot be reconstructed from SFace vectors. Note that embeddings are still biometric templates and sit unencrypted in the SQLite file — acceptable for a single trusted terminal; use OS-level disk encryption (e.g. BitLocker) on the device, and add at-rest encryption before any multi-tenant/cloud deployment.
+- Original faces cannot be reconstructed from SFace vectors. Note that embeddings are still biometric templates and sit unencrypted in the SQLite file. This was an acceptable tradeoff for a single trusted terminal, but the system now also runs as a multi-tenant web API — OS-level disk encryption (e.g. BitLocker) on the host is required, and application-level at-rest encryption for embeddings should be added before any real production/cloud deployment with real biometric data.
 - Enrollment is a single database transaction: a crash mid-enrollment can never leave a partial gallery.
-- No secrets are needed today; if any are introduced, they go in `.env` (already gitignored).
+- **A real secret is required for the web API.** `FA_JWT_SECRET` (32+ characters, no default) must be set before the API can issue or verify tokens — it fails loudly if unset. Set it via environment variable only, never commit it; it goes in a gitignored `.env` for local dev.
 - Model downloads are SHA256-pinned; a tampered file never loads.
 - `data/`, `logs/`, `models/`, `recordings/` are local runtime folders and never committed.
 
