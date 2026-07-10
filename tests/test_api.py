@@ -1,6 +1,7 @@
 """Read-only HTTP API: employee/attendance reporting, 404s, limit, and the
 tenant-isolation guarantee carried over from Phase 2 - an org_id in the URL
-only ever sees that org's data."""
+only ever sees that org's data. All data routes are now behind an admin token
+(Phase 5 auth); the per-role scopes are exercised in test_auth."""
 
 import unittest
 from datetime import datetime, timedelta, timezone
@@ -9,16 +10,21 @@ from tempfile import TemporaryDirectory
 
 from fastapi.testclient import TestClient
 
+from face_attendance.api.auth import get_settings, hash_password
 from face_attendance.api.dependencies import get_storage
 from face_attendance.api.main import app
+from face_attendance.config import AppSettings
 from face_attendance.contracts import (
     AttendanceEvent,
     AttendanceEventType,
     EmployeeRecord,
+    UserRecord,
+    UserRole,
 )
 from face_attendance.storage import AttendanceStorage, initialize_database
 
 NOW = datetime(2026, 7, 10, 9, 0, tzinfo=timezone.utc)
+SECRET = "test-jwt-secret-0123456789abcdef0123"
 
 
 def _seed_employee(storage: AttendanceStorage, org_id: str, employee_id: str) -> None:
@@ -82,9 +88,31 @@ class ApiTests(unittest.TestCase):
             )
         _seed_event(self.storage, "globex", "EMP-999", NOW, AttendanceEventType.CLOCK_IN)
 
+        # An admin per org so the read routes (now token-gated) are reachable.
+        for org in ("acme", "globex"):
+            self.storage.add_user(
+                UserRecord(
+                    org_id=org,
+                    user_id=f"admin@{org}.test",
+                    role=UserRole.ADMIN,
+                    password_hash=hash_password("pw"),
+                    created_at=NOW,
+                )
+            )
+
+        settings = AppSettings.from_env(environ={"FA_JWT_SECRET": SECRET})
         app.dependency_overrides[get_storage] = lambda: self.storage
+        app.dependency_overrides[get_settings] = lambda: settings
         self.addCleanup(app.dependency_overrides.clear)
         self.client = TestClient(app)
+        # Default to the acme admin; globex assertions pass their own header.
+        self.client.headers["Authorization"] = f"Bearer {self._token('acme')}"
+
+    def _token(self, org: str) -> str:
+        response = self.client.post(
+            "/auth/login", json={"email": f"admin@{org}.test", "password": "pw"}
+        )
+        return response.json()["access_token"]
 
     def test_health_needs_no_database(self) -> None:
         response = self.client.get("/health")
@@ -97,10 +125,11 @@ class ApiTests(unittest.TestCase):
         ids = [row["employee_id"] for row in response.json()]
         self.assertEqual(ids, ["EMP-001", "EMP-002"])
 
-    def test_unknown_org_returns_empty_list(self) -> None:
+    def test_other_org_is_forbidden(self) -> None:
+        # Auth precedes the storage lookup: a token for one org is refused at
+        # any other org's URL (403) before the empty-list logic is reached.
         response = self.client.get("/orgs/nope/employees")
-        self.assertEqual(response.status_code, 200)
-        self.assertEqual(response.json(), [])
+        self.assertEqual(response.status_code, 403)
 
     def test_get_employee_found(self) -> None:
         response = self.client.get("/orgs/acme/employees/EMP-001")
@@ -135,7 +164,7 @@ class ApiTests(unittest.TestCase):
         self.assertEqual(response.status_code, 422)
 
     def test_tenant_isolation_across_all_routes(self) -> None:
-        # globex's employee and event never surface through an acme URL...
+        # globex's employee never surfaces through an acme URL (acme token)...
         acme_ids = [
             row["employee_id"]
             for row in self.client.get("/orgs/acme/employees").json()
@@ -150,8 +179,16 @@ class ApiTests(unittest.TestCase):
         self.assertTrue(acme_events)
         self.assertTrue(all(e["org_id"] == "acme" for e in acme_events))
 
-        # The globex URL sees only its own single event.
-        globex_events = self.client.get("/orgs/globex/attendance").json()
+        # The acme token is refused at globex's URL (cross-org -> 403).
+        self.assertEqual(
+            self.client.get("/orgs/globex/attendance").status_code, 403
+        )
+
+        # A globex token sees only its own single event.
+        globex_header = {"Authorization": f"Bearer {self._token('globex')}"}
+        globex_events = self.client.get(
+            "/orgs/globex/attendance", headers=globex_header
+        ).json()
         self.assertEqual(len(globex_events), 1)
         self.assertEqual(globex_events[0]["org_id"], "globex")
 

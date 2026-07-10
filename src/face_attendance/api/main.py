@@ -3,7 +3,9 @@
 Every data route is scoped by an ``org_id`` path segment and delegates
 straight to ``AttendanceStorage``, whose reads already filter by org - so a
 tenant can only ever see its own rows (the Phase 2 isolation guarantee carried
-through to HTTP). This phase is reporting only: no auth (Phase 5) and no write
+through to HTTP). Reads are guarded by JWT auth (Phase 5): every data route
+requires a valid token whose ``org_id`` matches the URL, and ``employee``-role
+tokens are further restricted to their own record. There are still no write
 endpoints.
 
 An unknown org is not distinguishable from an org with no rows at the storage
@@ -18,9 +20,18 @@ from typing import Annotated
 
 from fastapi import Depends, FastAPI, HTTPException, Query
 from fastapi.middleware.cors import CORSMiddleware
+from pydantic import BaseModel
 
+from face_attendance.api.auth import (
+    CurrentUserDep,
+    SettingsDep,
+    authenticate_user,
+    create_access_token,
+    require_jwt_secret,
+    require_org_match,
+)
 from face_attendance.api.dependencies import get_storage
-from face_attendance.contracts import AttendanceEvent, EmployeeRecord
+from face_attendance.contracts import AttendanceEvent, EmployeeRecord, UserRole
 from face_attendance.storage import AttendanceStorage
 
 app = FastAPI(
@@ -36,11 +47,21 @@ app = FastAPI(
 app.add_middleware(
     CORSMiddleware,
     allow_origins=["http://localhost:5173", "http://127.0.0.1:5173"],
-    allow_methods=["GET"],
+    allow_methods=["GET", "POST"],
     allow_headers=["*"],
 )
 
 StorageDep = Annotated[AttendanceStorage, Depends(get_storage)]
+
+
+class LoginRequest(BaseModel):
+    email: str
+    password: str
+
+
+class TokenResponse(BaseModel):
+    access_token: str
+    token_type: str = "bearer"
 
 
 @app.get("/health")
@@ -50,17 +71,44 @@ def health() -> dict[str, str]:
     return {"status": "ok"}
 
 
-@app.get("/orgs/{org_id}/employees", response_model=list[EmployeeRecord])
-def list_employees(org_id: str, storage: StorageDep) -> list[EmployeeRecord]:
-    """All employees for an org (empty list if the org has none/does not exist)."""
+@app.post("/auth/login", response_model=TokenResponse)
+def login(
+    body: LoginRequest, storage: StorageDep, settings: SettingsDep
+) -> TokenResponse:
+    """Exchange email/password for a bearer token; 401 on any bad credential."""
 
+    user = authenticate_user(storage, body.email, body.password)
+    if user is None:
+        raise HTTPException(status_code=401, detail="invalid email or password")
+    token = create_access_token(user, require_jwt_secret(settings))
+    return TokenResponse(access_token=token)
+
+
+@app.get("/orgs/{org_id}/employees", response_model=list[EmployeeRecord])
+def list_employees(
+    org_id: str, storage: StorageDep, user: CurrentUserDep
+) -> list[EmployeeRecord]:
+    """Full org roster. admin/manager only - employees are denied the roster."""
+
+    require_org_match(user, org_id)
+    if user.role == UserRole.EMPLOYEE:
+        raise HTTPException(
+            status_code=403, detail="employees may not read the full roster"
+        )
     return storage.list_employees(org_id)
 
 
 @app.get("/orgs/{org_id}/employees/{employee_id}", response_model=EmployeeRecord)
-def get_employee(org_id: str, employee_id: str, storage: StorageDep) -> EmployeeRecord:
-    """Single employee, or 404 if no such employee exists in this org."""
+def get_employee(
+    org_id: str, employee_id: str, storage: StorageDep, user: CurrentUserDep
+) -> EmployeeRecord:
+    """Single employee, or 404. An employee may only read their own record."""
 
+    require_org_match(user, org_id)
+    if user.role == UserRole.EMPLOYEE and employee_id != user.employee_id:
+        raise HTTPException(
+            status_code=403, detail="employees may only read their own record"
+        )
     employee = storage.get_employee(org_id, employee_id)
     if employee is None:
         raise HTTPException(
@@ -74,10 +122,24 @@ def get_employee(org_id: str, employee_id: str, storage: StorageDep) -> Employee
 def list_attendance(
     org_id: str,
     storage: StorageDep,
+    user: CurrentUserDep,
     employee_id: Annotated[str | None, Query()] = None,
     limit: Annotated[int | None, Query(ge=1)] = None,
 ) -> list[AttendanceEvent]:
     """Attendance events for an org, optionally filtered by employee and capped
-    to the newest ``limit`` (mirrors ``list_attendance_events``)."""
+    to the newest ``limit`` (mirrors ``list_attendance_events``).
 
+    An employee is silently scoped to their own events: they cannot request a
+    different employee's events (403) nor pull the whole org by omitting the
+    filter (the filter is forced to their own id).
+    """
+
+    require_org_match(user, org_id)
+    if user.role == UserRole.EMPLOYEE:
+        if employee_id is not None and employee_id != user.employee_id:
+            raise HTTPException(
+                status_code=403,
+                detail="employees may only read their own attendance",
+            )
+        employee_id = user.employee_id
     return storage.list_attendance_events(org_id, employee_id=employee_id, limit=limit)

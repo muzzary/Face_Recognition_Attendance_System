@@ -53,22 +53,26 @@ face-attendance employees activate --employee-id EMP-001
 
 ### API
 
-A read-only HTTP API (FastAPI) reports the stored roster and attendance over the same tenant-scoped storage layer. It has no auth yet (a later phase) and no write endpoints. Run it against the configured `FA_DATABASE_PATH`:
+A read-only HTTP API (FastAPI) reports the stored roster and attendance over the same tenant-scoped storage layer, behind JWT auth and role-based access control. It has no write endpoints. `FA_JWT_SECRET` **must be set** before the API can issue or verify tokens (it fails loudly otherwise). Run it against the configured `FA_DATABASE_PATH`:
 
 ```powershell
+$env:FA_JWT_SECRET = "<a long random secret>"
 uvicorn face_attendance.api.main:app --reload
 ```
 
 Routes (every data route is scoped by an `org_id` path segment, so a tenant only ever sees its own rows):
 
-- `GET /health` — liveness check, no database access.
-- `GET /orgs/{org_id}/employees` — roster for the org (empty list if the org has none or does not exist).
-- `GET /orgs/{org_id}/employees/{employee_id}` — one employee, or 404.
-- `GET /orgs/{org_id}/attendance?employee_id=&limit=` — attendance events, optionally filtered by employee and capped to the newest `limit`.
+- `GET /health` — liveness check, no database access, no auth.
+- `POST /auth/login` — JSON `{email, password}` → `{access_token, token_type: "bearer"}`; `401` on bad credentials (without revealing whether email or password was wrong).
+- `GET /orgs/{org_id}/employees` — roster for the org (empty list if none). admin/manager only.
+- `GET /orgs/{org_id}/employees/{employee_id}` — one employee, or 404. An `employee`-role user may only read their own record.
+- `GET /orgs/{org_id}/attendance?employee_id=&limit=` — attendance events, optionally filtered and capped to the newest `limit`. An `employee`-role user is silently scoped to their own events.
+
+**Auth model:** every data route requires a valid bearer token whose `org_id` claim matches the URL (else `403`). Roles are `admin`, `manager`, `employee`. `admin` and `manager` have identical full read scope in this phase — there is no team/manager hierarchy data model yet, so `manager` is deliberately equivalent to `admin`. `employee` is restricted to their own linked record. Passwords are hashed with PBKDF2-HMAC-SHA256 (stdlib); tokens are HS256 JWTs signed with `FA_JWT_SECRET`.
 
 ### Web Frontend
 
-A minimal React + TypeScript + Vite single-page app in [`frontend/`](frontend/README.md) renders the roster and recent attendance from the API in plain HTML tables (Phase 4 skeleton — no auth or styling yet). Run the two halves together locally: seed a dev DB and start the API (`python scripts/seed_dev_data.py` then `uvicorn face_attendance.api.main:app --reload`), then `cd frontend && npm install && npm run dev` (http://localhost:5173, which the API's dev CORS allow-list permits).
+A minimal React + TypeScript + Vite single-page app in [`frontend/`](frontend/README.md) gates on a login form, then renders the roster and recent attendance from the API in plain HTML tables (still a skeleton — no styling or role-adaptive UI yet, that is Phase 6). Run the two halves together locally: seed a dev DB and start the API (`python scripts/seed_dev_data.py` then, with `FA_JWT_SECRET` set, `uvicorn face_attendance.api.main:app --reload`), then `cd frontend && npm install && npm run dev` (http://localhost:5173, which the API's dev CORS allow-list permits). The seed script prints local dev logins (`admin@acme.test` / `manager@acme.test` / `employee@acme.test`, password `devpassword123`).
 
 ### Configuration
 
@@ -93,6 +97,7 @@ All tunables are environment variables validated at startup (defaults in parenth
 | `FA_LIVENESS_MAX_GAP_SECONDS` | track lost after this silence (`2.0`) |
 | `FA_COOLDOWN_SECONDS` | per-employee re-log cooldown (`60`) |
 | `FA_INDEX_REFRESH_SECONDS` | live gallery reload interval (`30`) |
+| `FA_JWT_SECRET` | secret that signs/verifies API JWTs — **no default**, required before the API can log anyone in or verify a token (fails loudly if unset). A real secret: set it via env only, never commit it. Camera-only CLI usage does not need it |
 | `FA_LOG_DIR`, `FA_LOG_LEVEL` | logging (`logs`, `INFO`) |
 
 An invalid or unknown `FA_*` variable stops startup with the variable named.

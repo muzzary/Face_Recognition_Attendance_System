@@ -30,11 +30,11 @@ Last updated: 2026-07-10 (Web Arc Phase 3: read-only API)
 - `storage/` - SQLite schema (WAL, indexes, org-scoped tables) and `AttendanceStorage` repository; `migrate_to_org_scoping` upgrades a pre-tenant v2 database to the org-scoped v3 schema in place.
 - `config/` - `AppSettings`: validated runtime configuration with `FA_*` env overrides.
 - `app/` - application flows: `factory.py` (component wiring), `enroll.py`, `attend.py`, `report.py`, `calibrate.py` (per-camera liveness threshold recommendation).
-- `api/` - read-only FastAPI app over the storage layer: `main.py` (org-scoped employee/attendance/health routes reusing the `EmployeeRecord`/`AttendanceEvent` contracts as response models), `dependencies.py` (`get_storage`/`get_settings` DI so tests can point at a temp database). No auth or write endpoints yet.
+- `api/` - read-only FastAPI app over the storage layer, behind JWT auth + RBAC: `main.py` (org-scoped employee/attendance/health routes plus `POST /auth/login`, guarded by role/org checks), `auth.py` (PBKDF2 password hashing, HS256 JWT issue/verify, `get_current_user` dependency, `authenticate_user`, `require_org_match`), `dependencies.py` (`get_storage`/`get_settings` DI so tests can point at a temp database and inject a test secret). No write endpoints yet.
 
 ## Frontend (`frontend/`)
 
-React + TypeScript + Vite single-page app (Web Arc Phase 4 skeleton) that reads the roster and recent attendance from the API and renders them as plain HTML tables. No auth, styling, or routing yet.
+React + TypeScript + Vite single-page app (Web Arc skeleton) that gates on a login form (Phase 5), then reads the roster and recent attendance from the API with a bearer token and renders them as plain HTML tables. No styling or role-adaptive UI yet.
 
 - `package.json`, `vite.config.ts`, `tsconfig.json`, `index.html` - Vite `react-ts` scaffold; `vite.config.ts` also holds the Vitest (jsdom) config.
 - `src/main.tsx` - React root mount.
@@ -46,7 +46,7 @@ React + TypeScript + Vite single-page app (Web Arc Phase 4 skeleton) that reads 
 ## Scripts
 
 - `scripts/download_models.py` - thin CLI wrapper around `face_attendance.model_files`.
-- `scripts/seed_dev_data.py` - dev-only seeder: writes an `acme` org with a small roster and attendance events straight through `AttendanceStorage` (no camera) so the frontend has real rows to render.
+- `scripts/seed_dev_data.py` - dev-only seeder: writes an `acme` org with a small roster, attendance events, and three fake per-role login users (`admin`/`manager`/`employee`, password printed to stdout) straight through `AttendanceStorage` (no camera) so the frontend has real rows and logins to use.
 - `scripts/stream_preview.py` - stdlib-only MJPEG proof: reuses the pipeline (`build_components`/`run_attendance`) and `draw_overlay`, serving the latest annotated frame as a `multipart/x-mixed-replace` stream at `/stream` with latest-frame-wins output (no web framework).
 
 ## Tests
@@ -68,7 +68,8 @@ React + TypeScript + Vite single-page app (Web Arc Phase 4 skeleton) that reads 
 - `tests/test_app.py` - end-to-end enrollment/attendance with fakes, CLI dispatch.
 - `tests/test_calibrate.py` - liveness calibration sampling, recommendation formulas, report output.
 - `tests/test_stream_preview.py` - MJPEG streamer: latest-wins/non-blocking JPEG holder, multipart framing, and the slow-consumer-never-stalls-producer guarantee over the real capture loop.
-- `tests/test_api.py` - read-only API via FastAPI TestClient against a temp SQLite DB: employee roster/single-lookup (incl. 404), attendance list with `limit`/employee filter, and cross-route tenant isolation on a two-org database.
+- `tests/test_api.py` - read-only API via FastAPI TestClient against a temp SQLite DB (now behind an admin token): employee roster/single-lookup (incl. 404), attendance list with `limit`/employee filter, and cross-route tenant isolation (cross-org token -> 403) on a two-org database.
+- `tests/test_auth.py` - auth + RBAC: login success/failure (401, indistinguishable email vs password), missing/invalid/expired token -> 401, cross-org token -> 403, and per-role read scopes (admin/manager full roster, employee denied roster / allowed own record / denied others / attendance auto-scoped to self).
 
 ## Docs
 

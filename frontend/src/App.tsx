@@ -1,11 +1,14 @@
-import { useEffect, useState } from "react";
+import { FormEvent, useEffect, useState } from "react";
 
-// Phase 4 walking skeleton: a single hardcoded org, no auth, no routing.
-// The org id must exist in the local dev database - seed it with
-// `python scripts/seed_dev_data.py`, which creates the "acme" org.
+// Phase 5 skeleton: a login gate in front of the Phase 4 tables. Still a single
+// hardcoded org, no routing, no styling - the real dashboard is Phase 6. The
+// org id must exist in the local dev database - seed it with
+// `python scripts/seed_dev_data.py`, which creates the "acme" org and the
+// admin@acme.test / manager@acme.test / employee@acme.test dev logins.
 const ORG_ID = "acme";
 const API_BASE = "http://127.0.0.1:8000";
 const RECENT_ATTENDANCE_LIMIT = 10;
+const TOKEN_KEY = "fa_access_token";
 
 interface EmployeeRecord {
   employee_id: string;
@@ -24,15 +27,74 @@ interface AttendanceEvent {
   org_id: string;
 }
 
-async function fetchJson<T>(path: string): Promise<T> {
-  const response = await fetch(`${API_BASE}${path}`);
+async function fetchJson<T>(path: string, token: string): Promise<T> {
+  const response = await fetch(`${API_BASE}${path}`, {
+    headers: { Authorization: `Bearer ${token}` },
+  });
   if (!response.ok) {
     throw new Error(`API responded ${response.status}`);
   }
   return (await response.json()) as T;
 }
 
-export function App() {
+async function login(email: string, password: string): Promise<string> {
+  const response = await fetch(`${API_BASE}/auth/login`, {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify({ email, password }),
+  });
+  if (!response.ok) {
+    throw new Error("Login failed");
+  }
+  const data = (await response.json()) as { access_token: string };
+  return data.access_token;
+}
+
+function LoginForm({ onToken }: { onToken: (token: string) => void }) {
+  const [email, setEmail] = useState("");
+  const [password, setPassword] = useState("");
+  const [error, setError] = useState<string | null>(null);
+
+  async function handleSubmit(event: FormEvent) {
+    event.preventDefault();
+    setError(null);
+    try {
+      const token = await login(email, password);
+      localStorage.setItem(TOKEN_KEY, token);
+      onToken(token);
+    } catch {
+      setError("Invalid email or password");
+    }
+  }
+
+  return (
+    <main>
+      <h1>Face Attendance — sign in</h1>
+      <form onSubmit={handleSubmit}>
+        <label>
+          Email
+          <input
+            type="email"
+            value={email}
+            onChange={(e) => setEmail(e.target.value)}
+          />
+        </label>
+        <label>
+          Password
+          <input
+            type="password"
+            value={password}
+            onChange={(e) => setPassword(e.target.value)}
+          />
+        </label>
+        <button type="submit">Sign in</button>
+      </form>
+      {error && <p role="alert">{error}</p>}
+    </main>
+  );
+}
+
+function Dashboard({ token, onLogout }: { token: string; onLogout: () => void }) {
   const [employees, setEmployees] = useState<EmployeeRecord[]>([]);
   const [events, setEvents] = useState<AttendanceEvent[]>([]);
   const [loading, setLoading] = useState(true);
@@ -43,9 +105,10 @@ export function App() {
     async function load() {
       try {
         const [roster, attendance] = await Promise.all([
-          fetchJson<EmployeeRecord[]>(`/orgs/${ORG_ID}/employees`),
+          fetchJson<EmployeeRecord[]>(`/orgs/${ORG_ID}/employees`, token),
           fetchJson<AttendanceEvent[]>(
             `/orgs/${ORG_ID}/attendance?limit=${RECENT_ATTENDANCE_LIMIT}`,
+            token,
           ),
         ]);
         if (cancelled) return;
@@ -61,7 +124,7 @@ export function App() {
     return () => {
       cancelled = true;
     };
-  }, []);
+  }, [token]);
 
   if (loading) return <p>Loading...</p>;
   if (error) return <p role="alert">{error}</p>;
@@ -69,6 +132,7 @@ export function App() {
   return (
     <main>
       <h1>Face Attendance — org: {ORG_ID}</h1>
+      <button onClick={onLogout}>Sign out</button>
 
       <h2>Employees</h2>
       <table>
@@ -113,4 +177,20 @@ export function App() {
       </table>
     </main>
   );
+}
+
+export function App() {
+  const [token, setToken] = useState<string | null>(() =>
+    localStorage.getItem(TOKEN_KEY),
+  );
+
+  function logout() {
+    localStorage.removeItem(TOKEN_KEY);
+    setToken(null);
+  }
+
+  if (token === null) {
+    return <LoginForm onToken={setToken} />;
+  }
+  return <Dashboard token={token} onLogout={logout} />;
 }

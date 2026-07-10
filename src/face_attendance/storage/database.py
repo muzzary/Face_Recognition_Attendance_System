@@ -10,10 +10,22 @@ from datetime import datetime, timezone
 from pathlib import Path
 from typing import Any
 
-from face_attendance.contracts import AttendanceEvent, EmployeeRecord, FaceEmbedding
+from face_attendance.contracts import (
+    AttendanceEvent,
+    EmployeeRecord,
+    FaceEmbedding,
+    UserRecord,
+    UserRole,
+)
 
 
-SCHEMA_VERSION = 3
+SCHEMA_VERSION = 4
+
+# The v2 -> v3 migration produces exactly the org-scoping schema (no users
+# table); it stamps this fixed version, not the current SCHEMA_VERSION. The
+# additive users table (v4) is applied separately by initialize_database's
+# CREATE TABLE IF NOT EXISTS on the next init-db.
+_ORG_SCOPING_SCHEMA_VERSION = 3
 
 # Single-tenant deployments (today's CLI) all live under this organization.
 # Multi-tenant callers pass their own org id everywhere instead.
@@ -152,7 +164,7 @@ def migrate_to_org_scoping(
                 f"migration produced foreign-key violations: {violations}"
             )
 
-        connection.execute(f"PRAGMA user_version = {SCHEMA_VERSION}")
+        connection.execute(f"PRAGMA user_version = {_ORG_SCOPING_SCHEMA_VERSION}")
         connection.execute("COMMIT")
         connection.execute("PRAGMA foreign_keys = ON")
     except sqlite3.Error as exc:
@@ -435,6 +447,40 @@ class AttendanceStorage:
             row = connection.execute(query, (org_id,)).fetchone()
         return int(row["total"])
 
+    def add_user(self, user: UserRecord) -> None:
+        with self._connect() as connection:
+            connection.execute(
+                """
+                INSERT INTO users
+                    (user_id, org_id, role, password_hash, employee_id, created_at)
+                VALUES (?, ?, ?, ?, ?, ?)
+                """,
+                (
+                    user.user_id,
+                    user.org_id,
+                    user.role.value,
+                    user.password_hash,
+                    user.employee_id,
+                    user.created_at.isoformat(),
+                ),
+            )
+
+    def get_user_by_email(self, user_id: str) -> UserRecord | None:
+        """Look up a login user by email (the primary key), or None."""
+
+        with self._connect() as connection:
+            row = connection.execute(
+                """
+                SELECT user_id, org_id, role, password_hash, employee_id, created_at
+                FROM users
+                WHERE user_id = ?
+                """,
+                (user_id,),
+            ).fetchone()
+        if row is None:
+            return None
+        return _user_from_row(row)
+
     def list_table_columns(self) -> dict[str, list[str]]:
         """Return table columns for safety tests and lightweight diagnostics."""
 
@@ -454,6 +500,18 @@ def _employee_from_row(row: sqlite3.Row) -> EmployeeRecord:
         employee_id=str(row["employee_id"]),
         full_name=str(row["full_name"]),
         is_active=bool(row["is_active"]),
+        created_at=str(row["created_at"]),
+    )
+
+
+def _user_from_row(row: sqlite3.Row) -> UserRecord:
+    employee_id = row["employee_id"]
+    return UserRecord(
+        user_id=str(row["user_id"]),
+        org_id=str(row["org_id"]),
+        role=UserRole(str(row["role"])),
+        password_hash=str(row["password_hash"]),
+        employee_id=None if employee_id is None else str(employee_id),
         created_at=str(row["created_at"]),
     )
 
@@ -545,6 +603,20 @@ CREATE TABLE IF NOT EXISTS attendance_events (
 );
 """
 
+# Login users for the HTTP API. Added in schema v4 as a fresh additive table
+# (no existing prod rows), so the CREATE TABLE IF NOT EXISTS in the fresh-schema
+# path is enough - no migration function is needed for this one.
+_USERS_TABLE = """
+CREATE TABLE IF NOT EXISTS users (
+    user_id TEXT PRIMARY KEY,
+    org_id TEXT NOT NULL REFERENCES organizations(org_id),
+    role TEXT NOT NULL CHECK (role IN ('admin', 'manager', 'employee')),
+    password_hash TEXT NOT NULL,
+    employee_id TEXT REFERENCES employees(employee_id),
+    created_at TEXT NOT NULL
+);
+"""
+
 # Hot paths at scale: per-employee event history (cooldown/toggle lookups),
 # per-employee embedding loads for the match index, and per-org filtering of
 # every table for tenant-scoped reports and gallery loads.
@@ -563,6 +635,7 @@ SCHEMA_SQL = (
     + _EMPLOYEES_TABLE
     + _FACE_EMBEDDINGS_TABLE
     + _ATTENDANCE_EVENTS_TABLE
+    + _USERS_TABLE
     + "\n"
     + ";\n".join(_INDEX_STATEMENTS)
     + ";\n"

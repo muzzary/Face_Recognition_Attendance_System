@@ -73,6 +73,13 @@ class AppSettings(BaseModel):
     # and deactivations made elsewhere take effect without a restart.
     index_refresh_seconds: int = Field(default=30, ge=0)
 
+    # Auth. Secret used to sign/verify API JWTs. It is a real secret, so it has
+    # no usable default: unset (None) means "not configured", and the API auth
+    # layer fails loudly the moment it needs to issue or verify a token (see
+    # api.auth.require_jwt_secret). Left optional here so camera-only CLI usage,
+    # which never touches auth, doesn't have to carry an API secret.
+    jwt_secret: str | None = Field(default=None, min_length=1)
+
     # Logging
     log_level: str = "INFO"
 

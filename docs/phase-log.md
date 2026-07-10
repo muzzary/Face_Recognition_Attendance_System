@@ -1,5 +1,39 @@
 # Phase Log
 
+## Web Arc Phase 5 - Authentication + Role-Based Access Control
+
+Date: 2026-07-10
+
+### Goal
+
+Fifth phase of the 7-phase web/multi-tenant arc. Put login + JWT auth + RBAC in front of the read-only API so a tenant's data is reachable only with a valid token, and only within the caller's role scope. Scoped to auth/RBAC only - no dashboard redesign, no camera work (Phases 6-7).
+
+### What changed
+
+- **`users` table (schema v4)** (`storage/database.py`): `user_id` (email PK), `org_id` (FK organizations), `role` CHECK(admin/manager/employee), `password_hash`, nullable `employee_id` (FK employees, links an employee-role login to their record), `created_at`. Added `add_user`/`get_user_by_email`. Fresh additive table via `CREATE TABLE IF NOT EXISTS`, no migration function. `migrate_to_org_scoping` now stamps a fixed `_ORG_SCOPING_SCHEMA_VERSION = 3` (it produces the v3 schema, not the current version) - the users table is applied by the next `init-db`.
+- **Contracts** (`contracts.py`): `UserRole` enum and `UserRecord` (timezone-aware `created_at`; a validator requires `employee_id` for the employee role). `UserRole` docstring records the deliberate admin==manager simplification (no team hierarchy yet).
+- **`api/auth.py` (new)**: stdlib PBKDF2-HMAC-SHA256 password hashing (`salt_hex$hash_hex`, 200k iters, `hmac.compare_digest`); `authenticate_user` with a dummy-hash timing equalizer so unknown-email and wrong-password are indistinguishable in message and latency; HS256 JWT `create_access_token`/`get_current_user` (8h expiry); `require_jwt_secret` (fails loudly if unset); `require_org_match`.
+- **API** (`api/main.py`): `POST /auth/login` -> bearer token / 401; every data route now requires a token whose `org_id` matches the URL (403 otherwise); employee role denied the roster, restricted to their own single record, and silently self-scoped on attendance (can't widen by omitting the filter or asking for another id). CORS now allows POST.
+- **Settings** (`config/settings.py`): `jwt_secret` (`FA_JWT_SECRET`) - a real secret with no usable default; left optional at the model so camera-only CLI usage isn't coupled to it, enforced at the API auth boundary.
+- **Dependency**: added `pyjwt >= 2.8` (pre-approved, was already installed).
+- **Seed script** (`scripts/seed_dev_data.py`): three obviously-fake `.test` per-role logins for `acme` (employee linked to EMP-001), shared throwaway password `devpassword123`, printed to stdout; clearly marked local-dev-only.
+- **Frontend** (`frontend/src/App.tsx`): a minimal login form gates the app; the token is stored in `localStorage` and sent as `Authorization: Bearer` on the roster/attendance fetches (replacing the Phase 4 no-auth calls). Sign-out clears the token.
+- **Docs**: README API/frontend sections + config table (`FA_JWT_SECRET`), `DIRECTORY_MAP.md` (auth.py, users, seed users, test files).
+
+### Verified
+
+- **Python suite:** `python -m unittest discover -s tests` -> **185 passed** (173 before + 12 in `test_auth.py`; `test_api.py` updated to authenticate and to expect 403 on cross-org).
+- **Frontend:** `npm run build` (tsc + vite) clean, no TS errors; `npm test` -> **5 passed** (login attaches the issued token to the next request; token-present dashboard renders; API-error and login-error states).
+- **End-to-end (uvicorn + curl, scratch DB, `FA_JWT_SECRET` set):** login success 200; wrong-password and unknown-email both 401 with identical `invalid email or password`; no/invalid/expired token 401; admin+manager roster 200; admin cross-org 403; employee roster 403, own record 200, other record 403, attendance auto-scoped to own 2 events, other-employee query 403. Confirmed `require_jwt_secret` raises when `FA_JWT_SECRET` is unset.
+
+### Manual checkpoint still owed
+
+- A human logging in through the actual browser UI (each of the three seeded roles) and watching the tables populate / the roster 403 surface for the employee role. No browser-automation tool this session, so the visual login confirmation is left to the operator - same convention as prior phases.
+
+### Review
+
+- Reviewed, clean. Secret never defaulted/committed; passwords PBKDF2-hashed with constant-time compare; login is non-enumerable (message + timing); employee auto-scoping can't be widened, and employee-role tokens always carry `employee_id` by contract. `manager` == `admin` read scope is a deliberate, documented simplification (no team model yet).
+
 ## Web Arc Phase 4 - First Frontend (Walking Skeleton)
 
 Date: 2026-07-10

@@ -22,6 +22,19 @@ class AttendanceEventType(str, Enum):
     CLOCK_OUT = "clock_out"
 
 
+class UserRole(str, Enum):
+    """Access roles for API/login users.
+
+    ``manager`` is deliberately equivalent to ``admin`` for read scope in this
+    phase - there is no team/manager-hierarchy data model yet, so nothing
+    distinguishes their access. ``employee`` is restricted to their own record.
+    """
+
+    ADMIN = "admin"
+    MANAGER = "manager"
+    EMPLOYEE = "employee"
+
+
 class LivenessStatus(str, Enum):
     """Possible outcomes from a liveness check."""
 
@@ -135,6 +148,35 @@ class EmployeeRecord(StrictModel):
         if value.tzinfo is None or value.utcoffset() is None:
             raise ValueError("created_at must be timezone-aware")
         return value.astimezone(timezone.utc)
+
+
+class UserRecord(StrictModel):
+    """A login user, scoped to one org and one role.
+
+    ``user_id`` is the user's email (globally unique login id). ``employee_id``
+    links an ``employee``-role login to their own attendance record and is
+    required for that role only.
+    """
+
+    org_id: str = Field(min_length=1)
+    user_id: str = Field(min_length=1)
+    role: UserRole
+    password_hash: str = Field(min_length=1)
+    employee_id: str | None = None
+    created_at: datetime
+
+    @field_validator("created_at")
+    @classmethod
+    def require_timezone(cls, value: datetime) -> datetime:
+        if value.tzinfo is None or value.utcoffset() is None:
+            raise ValueError("created_at must be timezone-aware")
+        return value.astimezone(timezone.utc)
+
+    @model_validator(mode="after")
+    def require_employee_link_for_employee_role(self) -> UserRecord:
+        if self.role == UserRole.EMPLOYEE and not self.employee_id:
+            raise ValueError("employee-role users must set employee_id")
+        return self
 
 
 class MatchResult(StrictModel):

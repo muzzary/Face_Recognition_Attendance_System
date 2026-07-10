@@ -16,8 +16,15 @@ from __future__ import annotations
 
 from datetime import datetime, timedelta, timezone
 
+from face_attendance.api.auth import hash_password
 from face_attendance.config import AppSettings
-from face_attendance.contracts import AttendanceEvent, AttendanceEventType, EmployeeRecord
+from face_attendance.contracts import (
+    AttendanceEvent,
+    AttendanceEventType,
+    EmployeeRecord,
+    UserRecord,
+    UserRole,
+)
 from face_attendance.storage import AttendanceStorage
 
 ORG_ID = "acme"
@@ -26,6 +33,17 @@ EMPLOYEES = [
     ("EMP-001", "Ada Lovelace"),
     ("EMP-002", "Alan Turing"),
     ("EMP-003", "Grace Hopper"),
+]
+
+# LOCAL DEV FIXTURE ONLY - obviously-fake .test accounts with a shared,
+# clearly-labeled throwaway password, so a developer can log in and try each
+# role against the local API. These are NEVER for production: real users are
+# provisioned with unique, secret passwords through a real path.
+DEV_PASSWORD = "devpassword123"  # noqa: S105 - intentional dev fixture credential
+DEV_USERS = [
+    ("admin@acme.test", UserRole.ADMIN, None),
+    ("manager@acme.test", UserRole.MANAGER, None),
+    ("employee@acme.test", UserRole.EMPLOYEE, "EMP-001"),
 ]
 
 
@@ -67,7 +85,24 @@ def main() -> None:
             )
         )
 
+    password_hash = hash_password(DEV_PASSWORD)
+    for user_id, role, employee_id in DEV_USERS:
+        storage.add_user(
+            UserRecord(
+                org_id=ORG_ID,
+                user_id=user_id,
+                role=role,
+                password_hash=password_hash,
+                employee_id=employee_id,
+                created_at=now,
+            )
+        )
+
     print(f"Seeded org '{ORG_ID}' with {len(EMPLOYEES)} employees into {settings.database_path}")
+    print(f"Seeded {len(DEV_USERS)} dev login users (LOCAL DEV ONLY, password '{DEV_PASSWORD}'):")
+    for user_id, role, employee_id in DEV_USERS:
+        link = f" -> {employee_id}" if employee_id else ""
+        print(f"  {role.value:8} {user_id}{link}")
 
 
 if __name__ == "__main__":
