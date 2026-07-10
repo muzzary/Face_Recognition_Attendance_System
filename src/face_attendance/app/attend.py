@@ -7,7 +7,10 @@ import threading
 import time
 from collections import deque
 from dataclasses import dataclass
-from typing import Callable
+from typing import TYPE_CHECKING, Callable
+
+if TYPE_CHECKING:
+    import numpy as np
 
 from face_attendance.app.factory import PipelineComponents
 from face_attendance.capture import CaptureError, Frame, FrameSource
@@ -41,12 +44,19 @@ def run_attendance(
     display: bool = False,
     on_message: Callable[[str], None] = print,
     max_frames: int | None = None,
+    on_frame: Callable[[Frame, "RecognitionOutput | None"], None] | None = None,
 ) -> AttendStats:
     """Run the attendance loop until quit, camera loss, or max_frames.
 
     The capture loop stays lightweight: read, hand off to the worker via the
     latest-frame slot, draw the most recent results. All recognition work
     happens on the worker thread.
+
+    ``on_frame`` is an optional per-iteration hook receiving the freshly read
+    frame and the most recent recognition output, so an alternative output sink
+    (e.g. an MJPEG streamer) can reuse this exact non-blocking loop instead of
+    reimplementing the capture/backpressure machinery. It runs on the capture
+    thread alongside the display draw and must not block on inference.
     """
 
     stats = AttendStats()
@@ -133,7 +143,10 @@ def run_attendance(
                     logger.error("gallery refresh failed: %s", exc)
                 last_refresh = time.monotonic()
 
-            if display and not _show_frame(frame, latest_output, components):
+            if on_frame is not None:
+                on_frame(frame, latest_output)
+
+            if display and not _show_frame(frame, latest_output):
                 break
     finally:
         try:
@@ -208,12 +221,16 @@ def _liveness_metrics_suffix(liveness: LivenessResult | None) -> str:
     return " [" + ", ".join(parts) + "]"
 
 
-def _show_frame(
-    frame: Frame,
-    latest_output: RecognitionOutput | None,
-    components: PipelineComponents,
-) -> bool:
-    """Draw overlays and pump the UI; returns False when the user quits."""
+def draw_overlay(
+    frame: Frame, latest_output: RecognitionOutput | None
+) -> "np.ndarray":
+    """Return a copy of the frame image annotated with recognition results.
+
+    Boxes/labels are colored by outcome: green when an event was logged, red on
+    a failed liveness check, amber on a match still gathering evidence, grey for
+    an unknown face. Shared by the cv2 preview window and the MJPEG streamer so
+    both surfaces show identical annotations.
+    """
 
     import cv2
 
@@ -248,7 +265,15 @@ def _show_frame(
                 color,
                 2,
             )
-    cv2.imshow(WINDOW_TITLE, image)
+    return image
+
+
+def _show_frame(frame: Frame, latest_output: RecognitionOutput | None) -> bool:
+    """Draw overlays and pump the UI; returns False when the user quits."""
+
+    import cv2
+
+    cv2.imshow(WINDOW_TITLE, draw_overlay(frame, latest_output))
     return (cv2.waitKey(1) & 0xFF) != ord("q")
 
 

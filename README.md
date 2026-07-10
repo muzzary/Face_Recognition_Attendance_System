@@ -151,7 +151,7 @@ Attendance is **never** logged until liveness passes; an incomplete window is UN
 python -m unittest discover -s tests
 ```
 
-144 tests cover every module with hardware-free fakes: capture failure modes, multi-face detection, enrollment quality gates, threshold behavior, spoof sequences (static/waved/rotated photo), liveness bands (motion ceiling, deformation floor, natural-head-turn regression guard), calibration recommendations, backpressure, worker failure policy, end-to-end enrollment/attendance, settings validation, and CLI dispatch. A scalability guard asserts 1000-employee matching latency. CI runs the suite on every push.
+150 tests cover every module with hardware-free fakes: capture failure modes, multi-face detection, enrollment quality gates, threshold behavior, spoof sequences (static/waved/rotated photo), liveness bands (motion ceiling, deformation floor, natural-head-turn regression guard), calibration recommendations, backpressure, worker failure policy, end-to-end enrollment/attendance, the MJPEG stream preview (latest-wins output holder, multipart framing, slow-consumer-never-stalls-producer), settings validation, and CLI dispatch. A scalability guard asserts 1000-employee matching latency. CI runs the suite on every push.
 
 Tests that need real ONNX models skip automatically when models aren't downloaded, so CI needs no model fetch.
 

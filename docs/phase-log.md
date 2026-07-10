@@ -1,6 +1,25 @@
 # Phase Log
 
-## Manual Testing Complete - Scalability Verification
+## Web Arc Phase 1 - MJPEG Live Stream Proof
+
+Date: 2026-07-10
+
+### Goal
+
+First phase of a new 7-phase arc extending this system into a multi-tenant web product. This phase is a standalone proof (not the final architecture): show that the existing recognition pipeline's annotated frames can reach a browser at usable latency over HTTP, without breaking the "capture loop never blocks on inference" guarantee, and using the standard library only (no web framework yet - that arrives later).
+
+### What changed
+
+- `scripts/stream_preview.py` (new): stdlib-only MJPEG server. Wires the real camera + `RecognitionWorker` through the existing `build_components` / `run_attendance` path (identical construction to the `attend` CLI), and serves the latest annotated frame as a `multipart/x-mixed-replace` stream at `/stream` (plus a one-line `/` page that embeds it). A slow HTTP client can never back up the worker: HTTP output uses a `LatestJpegFrame` holder with the same latest-frame-wins discipline as the pipeline's `LatestFrameSlot`.
+- `src/face_attendance/app/attend.py`: extracted the box/label drawing out of the private `_show_frame` into a reusable `draw_overlay(frame, output) -> image` so the streamer draws byte-identical annotations to the cv2 preview (reuse, not duplication). Added an optional `on_frame` hook to `run_attendance` so an alternative output sink can reuse the exact non-blocking capture loop instead of reimplementing backpressure/shutdown. Dropped a dead `components` parameter from `_show_frame` while there. Existing callers pass neither new argument and are unaffected.
+- `src/face_attendance/app/__init__.py`: exported `draw_overlay`.
+- `tests/test_stream_preview.py` (new): reuses `tests/fakes.py` + `test_app.build_fake_components`. Proves the `LatestJpegFrame` holder is latest-wins and non-blocking (skips stale frames, wakes on cross-thread put, times out cleanly), the MJPEG framing/JPEG encoding are well-formed, and - the key acceptance test - driving the real `run_attendance` loop through the streamer with a deliberately slow consumer reads every frame (producer never stalls, `holder.version == frames_read`) while the consumer drops intermediate frames (versions strictly increasing with gaps > 1, never a backlog).
+
+### Verified
+
+- `python -m unittest discover -s tests`: 150 tests, all green (was 144; +6 new).
+- Real hardware (this machine's webcam): ran `python scripts/stream_preview.py`, then `curl --max-time 10 http://127.0.0.1:8000/stream` captured 86 KB containing 11 complete JPEG frames (11 `--faframe` boundaries, 11 SOI `ffd8ffe0`, 11 EOI `ffd9`) with correct multipart headers, and per-frame `Content-Length` varied across frames (7732 / 7734 / 7878) - proving live, distinct frames rather than a static or hung image. `GET /` returned the embed page.
+- Not done here (manual checkpoint, per this project's convention for anything camera/live-video): a full ~60-second visual browser check that the video looks smooth and correctly annotated. No browser-automation tool was available this session, so the visual confirmation is left to the operator.
 
 Date: 2026-07-08
 

@@ -1,6 +1,6 @@
 # Directory Map
 
-Last updated: 2026-07-07
+Last updated: 2026-07-10
 
 ## Root
 
@@ -34,6 +34,7 @@ Last updated: 2026-07-07
 ## Scripts
 
 - `scripts/download_models.py` - thin CLI wrapper around `face_attendance.model_files`.
+- `scripts/stream_preview.py` - stdlib-only MJPEG proof: reuses the pipeline (`build_components`/`run_attendance`) and `draw_overlay`, serving the latest annotated frame as a `multipart/x-mixed-replace` stream at `/stream` with latest-frame-wins output (no web framework).
 
 ## Tests
 
@@ -52,6 +53,7 @@ Last updated: 2026-07-07
 - `tests/test_config.py` - settings defaults, env overrides, validation errors.
 - `tests/test_app.py` - end-to-end enrollment/attendance with fakes, CLI dispatch.
 - `tests/test_calibrate.py` - liveness calibration sampling, recommendation formulas, report output.
+- `tests/test_stream_preview.py` - MJPEG streamer: latest-wins/non-blocking JPEG holder, multipart framing, and the slow-consumer-never-stalls-producer guarantee over the real capture loop.
 
 ## Docs
 
