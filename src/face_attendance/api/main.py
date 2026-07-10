@@ -39,7 +39,7 @@ from face_attendance.api.auth import (
     STREAM_TICKET_TTL,
 )
 from face_attendance.api.dependencies import get_settings, get_storage
-from face_attendance.api.streaming import BOUNDARY, CameraStreamer, mjpeg_stream
+from face_attendance.api.streaming import BOUNDARY, CameraStreamer
 from face_attendance.contracts import AttendanceEvent, EmployeeRecord, UserRole
 from face_attendance.storage import AttendanceStorage
 
@@ -48,26 +48,22 @@ logger = logging.getLogger(__name__)
 
 @asynccontextmanager
 async def lifespan(app: FastAPI):
-    """Own the camera for the API's lifetime: start the recognition/stream loop
-    on startup, stop it on shutdown.
+    """Provide the camera streamer without opening the camera at startup.
 
-    The camera is a single shared device, so the API process (not a script per
-    run) now owns it. If it cannot open - no camera on a dev/CI box, or missing
-    models - the streaming feature is disabled with a warning while the rest of
-    the API keeps serving; ``/orgs/{org_id}/stream`` then returns 503.
+    The camera is a single shared device. Opening it eagerly here would reserve
+    it (and burn recognition CPU) for the whole process lifetime even when
+    nobody is watching the live feed - and block the CLI's enroll/attend from
+    using it. So the streamer is created but not started: it opens lazily on the
+    first ``/orgs/{org_id}/stream`` request and auto-stops after an idle window
+    with no viewers (see ``CameraStreamer``). Shutdown still tears the camera
+    down if a viewer left it running.
     """
 
-    streamer = CameraStreamer(get_settings())
-    try:
-        streamer.start()
-        logger.info("live camera stream started")
-    except Exception as exc:  # noqa: BLE001 - the API must start without a camera
-        logger.warning("live camera stream unavailable: %s", exc)
-    app.state.streamer = streamer
+    app.state.streamer = CameraStreamer(get_settings())
     try:
         yield
     finally:
-        streamer.stop()
+        app.state.streamer.stop()
 
 
 app = FastAPI(
@@ -301,12 +297,27 @@ def stream_camera(
             detail="live camera is not assigned to this organization",
         )
     streamer = request.app.state.streamer
-    if streamer is None or not streamer.available:
+    if streamer is None:
+        raise HTTPException(
+            status_code=503, detail="live camera stream is unavailable"
+        )
+    # Lazy cold start: the camera opens on this first request rather than at
+    # process startup. On a Windows cold start this can block 60-90s before
+    # frames flow (documented OS latency, not a bug); a camera/model failure
+    # becomes a 503 rather than a 500 or a hang.
+    try:
+        streamer.ensure_started()
+    except Exception as exc:  # noqa: BLE001 - any open failure is an unavailable feed
+        logger.warning("live camera stream unavailable: %s", exc)
+        raise HTTPException(
+            status_code=503, detail="live camera stream is unavailable"
+        ) from exc
+    if not streamer.available:
         raise HTTPException(
             status_code=503, detail="live camera stream is unavailable"
         )
     return StreamingResponse(
-        mjpeg_stream(streamer.jpeg_frame, streamer.stop_event),
+        streamer.viewer_stream(),
         media_type=f"multipart/x-mixed-replace; boundary={BOUNDARY}",
         headers={
             "Cache-Control": "no-store",

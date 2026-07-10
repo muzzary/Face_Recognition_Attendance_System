@@ -30,6 +30,8 @@ face-attendance init-db
 
 Dependencies are deliberately minimal: `pydantic`, `numpy`, `opencv-python`. Detection (YuNet) and embeddings (SFace) ship inside OpenCV, so there is no dlib/onnxruntime install pain. Model files are hash-verified on download and gitignored.
 
+`pip install -e .` above stays intentionally unpinned so contributors resolve flexibly. `requirements-lock.txt` records the exact resolved versions the project is verified against (CPython 3.13); CI installs with `pip install -e ".[dev]" -c requirements-lock.txt` for reproducible builds. After intentionally bumping a dependency, regenerate it from a clean virtualenv with `pip freeze --exclude-editable > requirements-lock.txt` (re-add the header) and commit.
+
 ## Usage
 
 ```powershell
@@ -98,6 +100,7 @@ All tunables are environment variables validated at startup (defaults in parenth
 | `FA_LIVENESS_MAX_GAP_SECONDS` | track lost after this silence (`2.0`) |
 | `FA_COOLDOWN_SECONDS` | per-employee re-log cooldown (`60`) |
 | `FA_INDEX_REFRESH_SECONDS` | live gallery reload interval (`30`) |
+| `FA_STREAM_IDLE_TIMEOUT_SECONDS` | seconds the API keeps the camera open after the last live-feed viewer disconnects before auto-releasing it (`300`) — the camera opens lazily on the first `/stream` request (paying the Windows cold-start cost then, not at API startup) and a new viewer within this window cancels the pending release |
 | `FA_JWT_SECRET` | secret that signs/verifies API JWTs — **no default**, required before the API can log anyone in or verify a token (fails loudly if unset). A real secret: set it via env only, never commit it. Camera-only CLI usage does not need it |
 | `FA_LOG_DIR`, `FA_LOG_LEVEL` | logging (`logs`, `INFO`) |
 
@@ -167,6 +170,7 @@ Attendance is **never** logged until liveness passes; an incomplete window is UN
 - Biometric data is stored **only as numeric embeddings**; raw frames live in memory and are discarded. The schema is tested to contain no image/photo/raw/bytes columns.
 - **Tenant isolation:** every employee, embedding, and attendance row carries an `org_id` (foreign-keyed to an `organizations` table), and every storage read filters by it — one organization's data can never surface in another's queries (tested per read method). The CLI is single-org today via `FA_ORG_ID` (defaults to the built-in `default` org). An existing pre-org (v2) database is upgraded in place with `migrate_to_org_scoping`, which backfills all existing rows to the default org with zero data loss.
 - Original faces cannot be reconstructed from SFace vectors. Note that embeddings are still biometric templates and sit unencrypted in the SQLite file. This was an acceptable tradeoff for a single trusted terminal, but the system now also runs as a multi-tenant web API — OS-level disk encryption (e.g. BitLocker) on the host is required, and application-level at-rest encryption for embeddings should be added before any real production/cloud deployment with real biometric data.
+- **The camera is only held while it is being watched.** The API opens the single camera lazily on the first live-feed request and auto-releases it after `FA_STREAM_IDLE_TIMEOUT_SECONDS` with zero viewers, so an idle API neither reserves the device (blocking the CLI's `enroll`/`attend`) nor runs recognition inference on a feed nobody is viewing.
 - Enrollment is a single database transaction: a crash mid-enrollment can never leave a partial gallery.
 - **A real secret is required for the web API.** `FA_JWT_SECRET` (32+ characters, no default) must be set before the API can issue or verify tokens — it fails loudly if unset. Set it via environment variable only, never commit it; it goes in a gitignored `.env` for local dev.
 - Model downloads are SHA256-pinned; a tampered file never loads.

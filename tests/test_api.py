@@ -8,6 +8,7 @@ import unittest
 from datetime import datetime, timedelta, timezone
 from pathlib import Path
 from tempfile import TemporaryDirectory
+from unittest.mock import patch
 
 import jwt
 from fastapi.testclient import TestClient
@@ -21,7 +22,7 @@ from face_attendance.api.auth import (
 )
 from face_attendance.api.dependencies import get_storage
 from face_attendance.api.main import app, _login_rate_limiter
-from face_attendance.api.streaming import LatestJpegFrame
+from face_attendance.api.streaming import LatestJpegFrame, mjpeg_stream
 from face_attendance.config import AppSettings
 from face_attendance.contracts import (
     AttendanceEvent,
@@ -228,13 +229,55 @@ class ApiTests(unittest.TestCase):
         self.assertEqual(globex_events[0]["org_id"], "globex")
 
 
+class LifespanTests(unittest.TestCase):
+    """The API must no longer open the camera eagerly at process startup."""
+
+    def test_camera_is_not_started_at_api_startup(self) -> None:
+        calls = {"start": 0, "ensure_started": 0}
+
+        class SpyStreamer:
+            def __init__(self, settings, *args, **kwargs) -> None:
+                pass
+
+            def start(self) -> None:
+                calls["start"] += 1
+
+            def ensure_started(self) -> None:
+                calls["ensure_started"] += 1
+
+            def stop(self) -> None:
+                pass
+
+        # Entering TestClient as a context manager runs the lifespan startup.
+        with patch("face_attendance.api.main.CameraStreamer", SpyStreamer):
+            with TestClient(app):
+                # Startup finished; the camera opens only on a stream request.
+                self.assertEqual(calls["start"], 0)
+                self.assertEqual(calls["ensure_started"], 0)
+                self.assertIsInstance(app.state.streamer, SpyStreamer)
+        app.state.streamer = None
+
+
 class _FakeStreamer:
-    """Stands in for a running CameraStreamer without any hardware."""
+    """Stands in for an already-decided CameraStreamer without any hardware.
+
+    ``available`` is fixed, so ``ensure_started`` is a no-op here (the lazy
+    cold-start path is exercised against a real ``CameraStreamer`` in
+    tests/test_streaming.py); ``viewer_stream`` drives the same shared generator
+    the real streamer uses.
+    """
 
     def __init__(self, available: bool) -> None:
         self.jpeg_frame = LatestJpegFrame()
         self.stop_event = threading.Event()
         self.available = available
+        self.ensure_started_calls = 0
+
+    def ensure_started(self) -> None:
+        self.ensure_started_calls += 1
+
+    def viewer_stream(self):
+        return mjpeg_stream(self.jpeg_frame, self.stop_event)
 
 
 class StreamRouteTests(unittest.TestCase):

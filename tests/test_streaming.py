@@ -194,5 +194,133 @@ class CameraStreamerTests(unittest.TestCase):
             self.assertFalse(streamer.available)
 
 
+class _FakeCameraStreamer(CameraStreamer):
+    """Real ``CameraStreamer`` lifecycle with a fake camera thread.
+
+    Overrides only ``start`` so the lazy-start / idle-stop / viewer-tracking
+    machinery runs for real without opening a webcam: ``start`` spins up a
+    trivial thread that idles until ``stop_event`` is set, exactly the liveness
+    signal ``available`` and the inherited ``stop``/``_stop_locked`` read.
+    """
+
+    def __init__(self, idle_timeout: float) -> None:
+        settings = AppSettings.from_env(environ={})
+        super().__init__(settings, idle_timeout_seconds=idle_timeout)
+        self.starts = 0
+
+    def start(self) -> None:
+        self.starts += 1
+
+        def run() -> None:
+            while not self.stop_event.wait(0.005):
+                pass
+
+        self._thread = threading.Thread(target=run, name="fake-cam", daemon=True)
+        self._thread.start()
+
+    def _drive_one_viewer_frame(self, gen) -> None:
+        """Advance a viewer generator past its first yield (counts it in)."""
+
+        self.jpeg_frame.put(b"\xff\xd8x\xff\xd9")
+        next(gen)
+
+    def _wait_until_stopped(self, timeout: float = 2.0) -> None:
+        deadline = time.monotonic() + timeout
+        while self.available and time.monotonic() < deadline:
+            time.sleep(0.01)
+
+
+class CameraStreamerLifecycleTests(unittest.TestCase):
+    """Lazy start + idle auto-stop, hardware-free (Finding 1)."""
+
+    def test_ensure_started_opens_camera_lazily_not_before(self) -> None:
+        streamer = _FakeCameraStreamer(idle_timeout=60.0)
+        self.addCleanup(streamer.stop)
+
+        # Constructed (as the API lifespan now does) but not opened.
+        self.assertEqual(streamer.starts, 0)
+        self.assertFalse(streamer.available)
+
+        streamer.ensure_started()
+
+        self.assertEqual(streamer.starts, 1)
+        self.assertTrue(streamer.available)
+
+    def test_idle_timeout_defaults_to_the_configured_setting(self) -> None:
+        # Production path: lifespan/CLI construct without injecting a timeout, so
+        # the window must come from FA_STREAM_IDLE_TIMEOUT_SECONDS.
+        settings = AppSettings.from_env(
+            environ={"FA_STREAM_IDLE_TIMEOUT_SECONDS": "42"}
+        )
+
+        self.assertEqual(CameraStreamer(settings)._idle_timeout, 42.0)
+
+    def test_ensure_started_is_idempotent_while_running(self) -> None:
+        streamer = _FakeCameraStreamer(idle_timeout=60.0)
+        self.addCleanup(streamer.stop)
+
+        streamer.ensure_started()
+        streamer.ensure_started()
+
+        self.assertEqual(streamer.starts, 1)
+
+    def test_last_viewer_arms_idle_countdown_then_stops(self) -> None:
+        streamer = _FakeCameraStreamer(idle_timeout=0.3)
+        self.addCleanup(streamer.stop)
+        streamer.ensure_started()
+
+        gen = streamer.viewer_stream()
+        streamer._drive_one_viewer_frame(gen)
+        gen.close()  # the viewer disconnects
+
+        # Not stopped instantly: an idle countdown is pending and the camera
+        # stays open so the next viewer doesn't eat another cold start.
+        self.assertTrue(streamer.available)
+        self.assertIsNotNone(streamer._idle_timer)
+
+        # After the idle window elapses with no viewers, the camera is stopped.
+        streamer._wait_until_stopped()
+        self.assertFalse(streamer.available)
+        self.assertEqual(streamer.starts, 1)
+
+    def test_new_viewer_cancels_pending_idle_stop(self) -> None:
+        streamer = _FakeCameraStreamer(idle_timeout=0.3)
+        self.addCleanup(streamer.stop)
+        streamer.ensure_started()
+
+        gen1 = streamer.viewer_stream()
+        streamer._drive_one_viewer_frame(gen1)
+        gen1.close()
+        self.assertIsNotNone(streamer._idle_timer)  # countdown armed
+
+        # A new viewer arrives before the window elapses.
+        gen2 = streamer.viewer_stream()
+        self.addCleanup(gen2.close)
+        streamer._drive_one_viewer_frame(gen2)
+        self.assertIsNone(streamer._idle_timer)  # pending stop cancelled
+
+        # Past the original window, the still-open camera keeps serving and was
+        # never restarted.
+        time.sleep(0.45)
+        self.assertTrue(streamer.available)
+        self.assertEqual(streamer.starts, 1)
+
+    def test_orphaned_camera_stops_and_reopens_on_next_request(self) -> None:
+        streamer = _FakeCameraStreamer(idle_timeout=0.15)
+        self.addCleanup(streamer.stop)
+
+        # A camera opened but never streamed (viewer disconnected mid cold-start)
+        # is still bounded: the idle guard stops it with zero viewers.
+        streamer.ensure_started()
+        self.assertTrue(streamer.available)
+        streamer._wait_until_stopped()
+        self.assertFalse(streamer.available)
+
+        # A later request reopens it cleanly (stop_event was re-cleared).
+        streamer.ensure_started()
+        self.assertTrue(streamer.available)
+        self.assertEqual(streamer.starts, 2)
+
+
 if __name__ == "__main__":
     unittest.main()

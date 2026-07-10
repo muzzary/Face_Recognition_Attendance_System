@@ -140,19 +140,43 @@ class CameraStreamer:
     """Owns the camera + recognition worker, publishing annotated JPEG frames.
 
     A single instance runs the capture/recognition loop on a background thread
-    for the process's lifetime and feeds every annotated frame into
-    ``jpeg_frame``. ``start`` opens the camera on the calling thread and raises
-    on camera/model failure, so the caller picks its own error policy: the API
-    lifespan logs a warning and leaves the feed unavailable (the rest of the API
-    keeps working); the CLI proof lets it fail loud.
+    and feeds every annotated frame into ``jpeg_frame``. ``start`` opens the
+    camera on the calling thread and raises on camera/model failure, so the
+    caller picks its own error policy: the CLI proof calls ``start`` eagerly and
+    lets it fail loud.
+
+    The API instead drives the camera lazily through ``ensure_started`` and
+    ``viewer_stream``: the camera opens on the *first* stream request (not at
+    process startup) and auto-stops after ``idle_timeout_seconds`` with zero
+    active viewers, so an unwatched API neither reserves the single camera
+    device nor burns recognition CPU. Because a Windows cold start can take
+    60-90s, the last viewer leaving arms an idle countdown rather than stopping
+    at once; a new viewer arriving within the window cancels it and keeps
+    serving from the still-open camera. All start/stop/viewer/timer state is
+    serialized under one lock so a firing idle timer can never double-stop a
+    camera a fresh viewer just reopened.
     """
 
-    def __init__(self, settings: AppSettings, camera_index: int | None = None) -> None:
+    def __init__(
+        self,
+        settings: AppSettings,
+        camera_index: int | None = None,
+        idle_timeout_seconds: float | None = None,
+    ) -> None:
         self._settings = settings
         self._camera_index = camera_index
+        self._idle_timeout = (
+            idle_timeout_seconds
+            if idle_timeout_seconds is not None
+            else settings.stream_idle_timeout_seconds
+        )
         self.jpeg_frame = LatestJpegFrame()
         self.stop_event = threading.Event()
         self._thread: threading.Thread | None = None
+        # Serializes start/stop/viewer-count/idle-timer transitions.
+        self._lock = threading.Lock()
+        self._viewers = 0
+        self._idle_timer: threading.Timer | None = None
 
     @property
     def available(self) -> bool:
@@ -165,6 +189,89 @@ class CameraStreamer:
         """Organization whose gallery and attendance writer this camera uses."""
 
         return self._settings.org_id
+
+    def ensure_started(self) -> None:
+        """Open the camera lazily on first use; idempotent and thread-safe.
+
+        Cancels any pending idle-stop, then starts the recognition loop if it is
+        not already running. Blocks the calling thread through the cold start
+        (60-90s worst case on Windows) when the camera is not yet open; a second
+        request arriving during that window waits on the lock, then sees the
+        camera already running and returns at once. Raises the same
+        camera/model errors ``start`` raises so the route can turn them into a
+        503 instead of a live feed.
+
+        A camera opened here but never actually streamed (e.g. the client
+        disconnects mid cold-start so ``viewer_stream`` never runs) is still
+        bounded: an idle timer is armed whenever no viewer is counted, so an
+        orphaned camera stops on its own after the idle window.
+        """
+
+        with self._lock:
+            self._cancel_idle_timer_locked()
+            if self._thread is None or not self._thread.is_alive():
+                # A prior idle-stop leaves stop_event set; clear it so the fresh
+                # recognition loop (and its frame source) is not torn down at once.
+                self.stop_event.clear()
+                self.start()
+            if self._viewers == 0:
+                self._arm_idle_timer_locked()
+
+    def viewer_stream(self) -> Iterator[bytes]:
+        """MJPEG generator for one HTTP viewer, tracked for the idle lifecycle.
+
+        Counts this viewer in on entry (cancelling any pending idle-stop) and
+        out in a ``finally`` on client disconnect/shutdown; when the last viewer
+        leaves it arms the idle countdown. Delegates the actual framing to the
+        shared ``mjpeg_stream`` so the latest-frame-wins/non-blocking guarantees
+        are unchanged.
+        """
+
+        self._viewer_started()
+        try:
+            yield from mjpeg_stream(self.jpeg_frame, self.stop_event)
+        finally:
+            self._viewer_ended()
+
+    def _viewer_started(self) -> None:
+        with self._lock:
+            self._cancel_idle_timer_locked()
+            self._viewers += 1
+
+    def _viewer_ended(self) -> None:
+        with self._lock:
+            self._viewers = max(0, self._viewers - 1)
+            if self._viewers == 0:
+                self._arm_idle_timer_locked()
+
+    def _arm_idle_timer_locked(self) -> None:
+        """Schedule an idle-stop; caller holds the lock."""
+
+        self._cancel_idle_timer_locked()
+        timer = threading.Timer(self._idle_timeout, lambda: self._on_idle_timeout(timer))
+        timer.daemon = True
+        self._idle_timer = timer
+        timer.start()
+
+    def _cancel_idle_timer_locked(self) -> None:
+        if self._idle_timer is not None:
+            self._idle_timer.cancel()
+            self._idle_timer = None
+
+    def _on_idle_timeout(self, timer: threading.Timer) -> None:
+        """Stop the camera if it is still idle when this timer fires.
+
+        A timer that has already fired cannot be cancelled, so this re-checks
+        under the lock that it is still the *current* timer and that no viewer
+        arrived in the meantime - otherwise a fresh viewer's ``ensure_started``
+        that raced this callback would be stopped out from under it.
+        """
+
+        with self._lock:
+            if self._idle_timer is not timer or self._viewers > 0:
+                return
+            self._idle_timer = None
+            self._stop_locked()
 
     def start(self) -> None:
         """Open the camera and run the recognition loop on a background thread."""
@@ -201,8 +308,22 @@ class CameraStreamer:
         self._thread.start()
 
     def stop(self) -> None:
-        """Signal the loop to stop and wait briefly for the thread to finish."""
+        """Signal the loop to stop and wait briefly for the thread to finish.
+
+        Cancels any pending idle-stop and tears the camera down now. Safe to
+        call whether the camera was opened eagerly (CLI) or lazily (API), and
+        idempotent when nothing is running.
+        """
+
+        with self._lock:
+            self._cancel_idle_timer_locked()
+            self._stop_locked()
+
+    def _stop_locked(self) -> None:
+        """Signal the loop and join the thread; caller holds the lock."""
 
         self.stop_event.set()
-        if self._thread is not None:
-            self._thread.join(timeout=5.0)
+        thread = self._thread
+        if thread is not None:
+            thread.join(timeout=5.0)
+            self._thread = None

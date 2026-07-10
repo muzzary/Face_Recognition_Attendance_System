@@ -67,6 +67,15 @@ class AppSettings(BaseModel):
     liveness_min_deformation: float = Field(default=0.003, ge=0.0)
     liveness_max_gap_seconds: float = Field(default=2.0, gt=0.0)
 
+    # Live stream lifecycle. The API opens the camera lazily on the first
+    # /stream request (a cold start can take 60-90s on Windows) and auto-stops
+    # it after this many seconds with zero active viewers, so an unwatched API
+    # process stops reserving the single camera and burning recognition CPU. A
+    # new viewer within the window cancels the pending stop and keeps serving
+    # from the still-open camera. Default 5 minutes balances the cold-start cost
+    # against not holding the device open indefinitely for nobody.
+    stream_idle_timeout_seconds: float = Field(default=300.0, gt=0.0)
+
     # Attendance
     cooldown_seconds: int = Field(default=60, ge=0)
     # How often a running attend session re-reads the gallery, so enrollments

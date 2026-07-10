@@ -529,3 +529,137 @@ follow-up rather than added here.
 Implementation commit: pending (see git history)
 
 Push status: pending
+
+## Phase 7 - Lazy Camera Lifecycle and a Reproducible Dependency Lock
+
+Date: 2026-07-11
+
+Status: implemented, verified, reviewed, committed, pushed, awaiting manual checkpoint
+
+### Findings resolved
+
+The two remaining lower-priority findings, fixed together as one phase:
+
+1. **The camera ran for the API's whole lifetime with zero viewers.** The
+   `lifespan` opened the single physical camera and started the recognition
+   loop eagerly at API startup and held it until shutdown, regardless of
+   whether anyone had ever opened the live feed. That burned recognition CPU on
+   a feed nobody watched and permanently reserved the one camera device, so the
+   CLI's `enroll`/`attend` could not use it while the API process ran.
+2. **Dependencies had broad lower bounds and no lock file.** `pyproject.toml`
+   declared only `>=` lower bounds and nothing pinned the resolved transitive
+   versions, so `pip install -e .` could resolve differently over time - a
+   non-reproducible build with no lock artifact of any kind.
+
+### Implementation
+
+Finding 1 - lazy start + idle auto-stop, all serialized under one streamer lock:
+
+- Added `FA_STREAM_IDLE_TIMEOUT_SECONDS` (default `300` = 5 minutes), the
+  window the camera stays open after the last viewer disconnects. It is
+  injectable into `CameraStreamer` (`idle_timeout_seconds`) so tests use a
+  fraction of a second instead of sleeping 300s.
+- `lifespan` no longer opens the camera: it only constructs the streamer.
+  Shutdown still calls `stop()` in case a viewer left it running.
+- `CameraStreamer.ensure_started()` opens the camera lazily and idempotently on
+  the first stream request, cancelling any pending idle-stop; the stream route
+  now calls it and turns a camera/model failure into the existing `503` (rather
+  than a `500` or a hang). The route's Phase 2 org-binding and role `403`s still
+  run *before* `ensure_started`, so an unauthorized or wrong-tenant request
+  never triggers a cold start.
+- Active viewers are counted by wrapping the shared `mjpeg_stream` generator in
+  `CameraStreamer.viewer_stream()`: it increments on generator entry (cancelling
+  any pending idle-stop) and decrements in a `finally` on client
+  disconnect/shutdown. When the last viewer leaves, an idle countdown is armed;
+  a new viewer within the window cancels it and keeps serving from the
+  still-open camera.
+- The idle-stop is race-safe. A `threading.Timer` cannot be cancelled once it
+  has already fired, so its callback re-checks under the lock that it is still
+  the current timer and that no viewer arrived - a fresh viewer's
+  `ensure_started` that raced the callback can never be stopped out from under
+  it, and the camera can never double-start or double-stop. A camera opened but
+  never streamed (client disconnects mid cold-start) is also bounded: an idle
+  timer is armed whenever no viewer is counted, so an orphaned camera stops on
+  its own. `stop()` cancels the timer, joins the thread, and clears it; a prior
+  idle-stop's set `stop_event` is re-cleared before a fresh start.
+- The latest-frame-wins / non-blocking / capture-never-blocks guarantees are
+  untouched: `viewer_stream` delegates framing to the unchanged `mjpeg_stream`,
+  and non-stream routes never touch the streamer or its lock.
+
+Finding 2 - a plain, stdlib-installable constraints file (no new tool):
+
+- Added `requirements-lock.txt` at the repo root: `pip freeze --exclude-editable`
+  from a clean venv after `pip install -e ".[dev]"`, with a documented header.
+  It is a pip *constraints* file, not a replacement for `pyproject.toml`'s
+  abstract declarations, so local `pip install -e .` stays flexible.
+- CI installs the 3.13 job with `pip install -e ".[dev]" -c requirements-lock.txt`
+  for a reproducible pinned build. The 3.10 floor job stays unpinned: the lock's
+  `numpy 2.5.x` needs Python 3.11+, so the 3.10 job instead keeps proving the
+  abstract lower bounds still resolve.
+
+### Automated verification
+
+- New tests (7):
+  - `tests/test_api.py` `LifespanTests` (1): the camera is not started at API
+    startup (spy streamer under the real lifespan; neither `start` nor
+    `ensure_started` is called on entry).
+  - `tests/test_streaming.py` `CameraStreamerLifecycleTests` (6): idle timeout
+    defaults to the configured setting; `ensure_started` opens the camera
+    lazily and is idempotent while running; the last viewer arms an idle
+    countdown (camera not stopped instantly) and the camera then stops after
+    the window; a new viewer before the window cancels the pending stop and the
+    same camera keeps serving without a restart; an orphaned camera (opened, no
+    viewer) stops on its own and reopens cleanly on the next request. All use a
+    fake camera thread - no hardware.
+- Full Python regression suite (`python -m unittest discover -s tests`, exactly
+  as CI runs it): 224 tests passed in 38.7s (217 before this phase; +7).
+- Finding 2 dry-run for real, not assumed: created a clean venv, ran
+  `pip install -e ".[dev]" -c requirements-lock.txt`, confirmed it installs and
+  that the pinned versions (numpy 2.5.1, fastapi 0.139.0, httpx 0.28.1, etc.)
+  resolved exactly.
+- Real-hardware sanity check of Finding 1 (this machine has a working camera and
+  the ONNX models): launched the API with `uvicorn` and confirmed startup
+  completes and `/health` serves with **no** camera activity in the log (the old
+  eager "live camera stream started" line is gone). Then drove a real
+  `CameraStreamer` against the physical camera: `available` is `False` at
+  construction, `ensure_started()` actually opens the camera ("Opening camera
+  0... Camera ready."), a viewer connect+leave keeps it open with the idle timer
+  armed, and after the (shortened) idle window with no viewers the camera is
+  auto-released (`available` back to `False`). The browser live-feed visual
+  confirmation remains a manual checkpoint, consistent with prior phases.
+
+### Self-review
+
+- Correctness: reviewed, clean. All start/stop/viewer-count/idle-timer
+  transitions are serialized under one lock; the fired-timer re-check closes the
+  cancel race the finding called out.
+- Concurrency: reviewed, clean. The route is a sync endpoint (threadpool), so a
+  60-90s cold start blocks only that request's worker, not the event loop or
+  other routes; a delayed viewer decrement can only keep the camera open
+  *longer* (the safe direction), never cause a stop while a viewer is watching.
+- Reuse/simplification: reviewed, clean. Viewer tracking wraps the existing
+  `mjpeg_stream` rather than duplicating it; `stop`/`_stop_locked` share one
+  teardown; the eager `start()` path is retained unchanged for the CLI proof.
+- Security: reviewed, clean for this finding. Org-binding and role `403`s still
+  run before any camera work, so a cold start is never triggered by an
+  unauthorized or wrong-tenant request.
+- Dependencies: no new dependencies. The lock file is generated by stdlib
+  `pip freeze`; no `pip-tools`/`poetry`/`uv` introduced.
+
+### Files changed
+
+- `src/face_attendance/config/settings.py`
+- `src/face_attendance/api/streaming.py`
+- `src/face_attendance/api/main.py`
+- `tests/test_api.py`
+- `tests/test_streaming.py`
+- `requirements-lock.txt`
+- `.github/workflows/ci.yml`
+- `README.md`
+- `CODEX_AUDIT.md`
+
+### Delivery
+
+Implementation commit: pending (see git history)
+
+Push status: pending
