@@ -183,9 +183,11 @@ Attendance is **never** logged until liveness passes; an incomplete window is UN
 python -m unittest discover -s tests
 ```
 
-150 tests cover every module with hardware-free fakes: capture failure modes, multi-face detection, enrollment quality gates, threshold behavior, spoof sequences (static/waved/rotated photo), liveness bands (motion ceiling, deformation floor, natural-head-turn regression guard), calibration recommendations, backpressure, worker failure policy, end-to-end enrollment/attendance, the MJPEG stream preview (latest-wins output holder, multipart framing, slow-consumer-never-stalls-producer), settings validation, and CLI dispatch. A scalability guard asserts 1000-employee matching latency. CI runs the suite on every push.
+224 tests cover every module with hardware-free fakes: capture failure modes, multi-face detection, enrollment quality gates, threshold behavior, spoof sequences (static/waved/rotated photo), liveness bands (motion ceiling, deformation floor, natural-head-turn regression guard), calibration recommendations, backpressure, worker failure policy, end-to-end enrollment/attendance, the MJPEG stream (latest-wins output holder, multipart framing, slow-consumer-never-stalls-producer, lazy camera start/idle release), tenant isolation across every storage read, JWT auth/RBAC/ticket-audience separation and revocation-on-account-change, login rate limiting, settings validation, and CLI dispatch. A scalability guard asserts 1000-employee matching latency. CI runs the suite on every push, installed with the pinned `requirements-lock.txt` for reproducibility.
 
 Tests that need real ONNX models skip automatically when models aren't downloaded, so CI needs no model fetch.
+
+The frontend has its own suite: `cd frontend && npm test -- --run` (15 tests — role-branching dashboards, org derived from the token, 401-clears-session vs. 403-stays-logged-in, and the live-feed ticket flow). CI runs both suites plus a frontend production build on every push.
 
 ## Repository Layout
 

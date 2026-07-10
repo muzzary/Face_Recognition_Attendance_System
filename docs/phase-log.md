@@ -1,5 +1,35 @@
 # Phase Log
 
+## Codex Audit Remediation - All Findings Fixed
+
+Date: 2026-07-11
+
+### Goal
+
+An independent audit (Codex) of the completed 7-phase web/multi-tenant arc found two high-severity tenant-boundary defects, one high production-auth risk, and several medium/lower-priority correctness and hardening gaps. Every finding was fixed. Full phase-by-phase detail (finding, implementation, verification, self-review, files, delivery commit) lives in [`CODEX_AUDIT.md`](../CODEX_AUDIT.md) at the repo root - this entry is a summary pointer, not a duplicate.
+
+### What changed (condensed - see CODEX_AUDIT.md for full detail per phase)
+
+- **Tenant integrity (high):** employee identity became the composite key `(org_id, employee_id)` with composite foreign keys from embeddings/attendance/users, so two organizations can now reuse the same employee id and a malformed cross-org relationship is rejected by SQLite itself rather than relying on callers always passing the right `org_id`. Schema v5, with a transactional migration from v3/v4 that rolls back loudly on any legacy cross-org data.
+- **Camera-to-org binding (high):** the live stream route now also checks the requested org against the org the physical camera/recognition pipeline is actually configured for (`FA_ORG_ID`), not just the token's own org - a valid admin from an unassigned tenant is `403`, not served the other tenant's camera.
+- **Stream auth (high):** the long-lived 8-hour access token no longer rides in the stream URL. A new `POST /orgs/{org_id}/stream-ticket` mints a 60-second, audience-scoped ticket for that one purpose; JWTs generally gained required `iss`/`aud`/`type`/`iat`/`jti` claims, a 32-character minimum secret, and per-request revocation (a deleted or role-changed user's still-unexpired token stops working on its very next request).
+- **Frontend multi-tenancy (medium):** the dashboard derives `org_id` from the logged-in user's own token instead of a hardcoded `"acme"`, so any seeded tenant's users can actually use the frontend; a `401` now clears the session and returns to login (a `403` does not).
+- **Live overlay frame pairing (medium, correctness not security):** bounding boxes/labels were sometimes drawn onto a newer camera frame than the one they were actually computed from, under inference lag. The annotated overlay is now drawn on the frame it was computed from, at the small cost of the displayed video occasionally lagging slightly behind real time when inference is slow - the underlying attendance decision was never affected, only the display.
+- **Pagination, login rate limiting, CI (medium):** the attendance report is now always server-capped (default 100, hard max 500) instead of an unbounded query; `POST /auth/login` rate-limits repeated failures per IP (`429` + `Retry-After`) before running the expensive password hash; CI now installs the dev dependency group and runs the frontend's own test suite and production build, not just the Python suite.
+- **Camera idle lifecycle, dependency lock (lower-priority):** the camera now opens lazily on the first live-feed request instead of at API startup, and auto-releases after `FA_STREAM_IDLE_TIMEOUT_SECONDS` (default 300s) with no active viewers, so an idle API no longer permanently reserves the one physical camera or burns CPU on recognition nobody is watching; `requirements-lock.txt` pins exact resolved dependency versions for reproducible CI installs. README security notes and the stream-route docs were corrected to match current behavior (real `FA_JWT_SECRET` requirement, ticket auth, lazy camera).
+
+### Verified
+
+- Full Python regression suite: **224 tests, all green** (was 193 before this remediation arc).
+- Frontend suite: **15 tests, all green**; `npm run build` clean, no TypeScript errors.
+- Each finding also got a real end-to-end check against actual running processes (uvicorn + curl, and for camera-touching findings, this machine's real webcam) - not just unit tests. Details per finding are in `CODEX_AUDIT.md`.
+
+### Review
+
+- Reviewed, clean. This was implemented across several parallel agent passes on non-overlapping files (backend hardening; frontend org-scoping; live-overlay pipeline fix; camera lifecycle + dependency lock), each independently tested and self-reviewed, with one full regression pass across all of them at the end rather than after every individual change.
+- One real bug was found and fixed along the way (not in the original audit): a raw `sqlite3.connect()` used as a `with`-context manager in new revocation tests committed/rolled back a transaction but did not close the connection, leaking a Windows file handle that broke `TemporaryDirectory` cleanup - fixed by closing explicitly in a `finally` block.
+- Manual checkpoints still owed (no browser automation available this session, consistent with every prior phase's convention): a human visually confirming the live feed renders smoothly in a real browser, and a full role-based click-through of the dashboard.
+
 ## Web Arc Phase 7 - Authenticated Live Camera Stream
 
 Date: 2026-07-10

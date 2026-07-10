@@ -1,18 +1,20 @@
 # Directory Map
 
-Last updated: 2026-07-10 (Web Arc Phase 7: authenticated live camera stream)
+Last updated: 2026-07-11 (Codex audit remediation: tenant integrity, camera-to-org binding, stream ticket auth, frontend multi-tenancy, live-overlay frame pairing, pagination/rate-limiting/CI, camera idle lifecycle, dependency lock)
 
 ## Root
 
 - `.gitignore` - ignores Python caches, virtual environments, secrets, runtime logs, recordings, downloaded models, and local biometric data.
 - `AGENTS.md` - project-specific working instructions and engineering standards.
+- `CODEX_AUDIT.md` - phase-by-phase implementation record for the Codex security/correctness audit remediation (tenant integrity, camera-to-org binding, stream ticket auth, frontend multi-tenancy, live-overlay frame pairing, pagination/rate-limiting/CI, camera idle lifecycle, dependency lock).
 - `DIRECTORY_MAP.md` - quick navigation map for every important folder and file.
 - `MISSION.md` - teaching mission for learning the project while building it.
 - `RESOURCES.md` - curated source list for learning and implementation decisions.
 - `NOTES.md` - teaching and collaboration notes.
-- `pyproject.toml` - packaging metadata, core dependencies (pydantic, numpy, opencv-python, fastapi, uvicorn), the `httpx` dev dependency (FastAPI TestClient), and the `face-attendance` console script.
+- `pyproject.toml` - packaging metadata, core dependencies (pydantic, numpy, opencv-python, fastapi, uvicorn, pyjwt), the `httpx` dev dependency (FastAPI TestClient), and the `face-attendance` console script.
+- `requirements-lock.txt` - exact resolved dependency versions (CPython 3.13) CI installs against for reproducible builds; regenerate from a clean virtualenv after intentionally bumping a dependency.
 - `README.md` - setup, usage, threshold rationale, liveness limitations, concurrency design, scalability, and security notes.
-- `.github/workflows/ci.yml` - CI running the full test suite on push and pull request.
+- `.github/workflows/ci.yml` - CI running the full Python + frontend test suites (installed via the lockfile) and a frontend production build on push and pull request.
 
 ## Source (`src/face_attendance/`)
 
