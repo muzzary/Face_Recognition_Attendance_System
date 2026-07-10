@@ -9,10 +9,13 @@ from datetime import datetime, timedelta, timezone
 from pathlib import Path
 from tempfile import TemporaryDirectory
 
+import jwt
 from fastapi.testclient import TestClient
 
 from face_attendance.api.auth import (
+    AuthenticatedUser,
     create_access_token,
+    create_stream_ticket,
     get_settings,
     hash_password,
 )
@@ -212,9 +215,42 @@ class StreamRouteTests(unittest.TestCase):
     """Auth/RBAC/availability for GET /orgs/{org_id}/stream (no camera needed)."""
 
     def setUp(self) -> None:
+        self._temp = TemporaryDirectory()
+        self.addCleanup(self._temp.cleanup)
+        db_path = Path(self._temp.name) / "attendance.db"
+        initialize_database(db_path)
+        self.storage = AttendanceStorage(db_path)
+        self.storage.ensure_organization("acme", "Acme")
+        self.storage.ensure_organization("globex", "Globex")
+        self.storage.add_employee(
+            EmployeeRecord(
+                org_id="acme",
+                employee_id="EMP-001",
+                full_name="Employee",
+                created_at=NOW,
+            )
+        )
+        for role, org, employee_id in (
+            (UserRole.ADMIN, "acme", None),
+            (UserRole.MANAGER, "acme", None),
+            (UserRole.EMPLOYEE, "acme", "EMP-001"),
+            (UserRole.ADMIN, "globex", None),
+            (UserRole.MANAGER, "globex", None),
+        ):
+            self.storage.add_user(
+                UserRecord(
+                    org_id=org,
+                    user_id=f"{role.value}@{org}.test",
+                    role=role,
+                    password_hash="x",
+                    employee_id=employee_id,
+                    created_at=NOW,
+                )
+            )
         settings = AppSettings.from_env(
             environ={"FA_JWT_SECRET": SECRET, "FA_ORG_ID": "acme"}
         )
+        app.dependency_overrides[get_storage] = lambda: self.storage
         app.dependency_overrides[get_settings] = lambda: settings
         self.addCleanup(app.dependency_overrides.clear)
         self.client = TestClient(app)
@@ -233,11 +269,29 @@ class StreamRouteTests(unittest.TestCase):
         )
         return create_access_token(user, SECRET)
 
+    def _ticket(self, role: UserRole, org: str = "acme", employee_id=None) -> str:
+        return create_stream_ticket(
+            AuthenticatedUser(
+                user_id=f"{role.value}@{org}.test",
+                org_id=org,
+                role=role,
+                employee_id=employee_id,
+            ),
+            SECRET,
+        )
+
     def test_no_token_is_401(self) -> None:
         self.assertEqual(self.client.get("/orgs/acme/stream").status_code, 401)
 
     def test_invalid_token_is_401(self) -> None:
-        response = self.client.get("/orgs/acme/stream?token=not-a-jwt")
+        response = self.client.get("/orgs/acme/stream?ticket=not-a-jwt")
+        self.assertEqual(response.status_code, 401)
+
+    def test_access_token_in_query_is_no_longer_accepted(self) -> None:
+        token = self._token(UserRole.ADMIN)
+
+        response = self.client.get(f"/orgs/acme/stream?token={token}")
+
         self.assertEqual(response.status_code, 401)
 
     def test_org_mismatch_is_403(self) -> None:
@@ -248,9 +302,9 @@ class StreamRouteTests(unittest.TestCase):
 
     def test_other_tenant_cannot_view_the_process_camera(self) -> None:
         app.state.streamer = _FakeStreamer(available=True)
-        token = self._token(UserRole.ADMIN, org="globex")
+        ticket = self._ticket(UserRole.ADMIN, org="globex")
 
-        response = self.client.get(f"/orgs/globex/stream?token={token}")
+        response = self.client.get(f"/orgs/globex/stream?ticket={ticket}")
 
         self.assertEqual(response.status_code, 403)
         self.assertEqual(
@@ -259,35 +313,35 @@ class StreamRouteTests(unittest.TestCase):
         )
 
     def test_unassigned_tenant_cannot_probe_camera_availability(self) -> None:
-        token = self._token(UserRole.MANAGER, org="globex")
+        ticket = self._ticket(UserRole.MANAGER, org="globex")
 
-        response = self.client.get(f"/orgs/globex/stream?token={token}")
+        response = self.client.get(f"/orgs/globex/stream?ticket={ticket}")
 
         self.assertEqual(response.status_code, 403)
 
     def test_employee_is_forbidden(self) -> None:
         app.state.streamer = _FakeStreamer(available=True)
-        token = self._token(UserRole.EMPLOYEE, employee_id="EMP-001")
-        response = self.client.get(f"/orgs/acme/stream?token={token}")
+        ticket = self._ticket(UserRole.EMPLOYEE, employee_id="EMP-001")
+        response = self.client.get(f"/orgs/acme/stream?ticket={ticket}")
         self.assertEqual(response.status_code, 403)
 
     def test_camera_unavailable_is_503(self) -> None:
         # Both "no streamer at all" and "streamer present but not running" must
         # 503 rather than hang.
-        token = self._token(UserRole.ADMIN)
+        ticket = self._ticket(UserRole.ADMIN)
         self.assertEqual(
-            self.client.get(f"/orgs/acme/stream?token={token}").status_code, 503
+            self.client.get(f"/orgs/acme/stream?ticket={ticket}").status_code, 503
         )
         app.state.streamer = _FakeStreamer(available=False)
         self.assertEqual(
-            self.client.get(f"/orgs/acme/stream?token={token}").status_code, 503
+            self.client.get(f"/orgs/acme/stream?ticket={ticket}").status_code, 503
         )
 
     def test_manager_streams_multipart_when_available(self) -> None:
         fake = _FakeStreamer(available=True)
         fake.jpeg_frame.put(b"\xff\xd8live\xff\xd9")
         app.state.streamer = fake
-        token = self._token(UserRole.MANAGER)
+        ticket = self._ticket(UserRole.MANAGER)
 
         # The MJPEG generator is endless by design, so bound it for the test:
         # a timer flips the stop event, the generator ends, and a plain GET can
@@ -296,7 +350,7 @@ class StreamRouteTests(unittest.TestCase):
         timer.start()
         self.addCleanup(timer.cancel)
 
-        response = self.client.get(f"/orgs/acme/stream?token={token}")
+        response = self.client.get(f"/orgs/acme/stream?ticket={ticket}")
 
         self.assertEqual(response.status_code, 200)
         self.assertIn(
@@ -305,6 +359,34 @@ class StreamRouteTests(unittest.TestCase):
         # The pre-published frame came through the route with MJPEG framing.
         self.assertIn(b"--faframe", response.content)
         self.assertIn(b"\xff\xd8live\xff\xd9", response.content)
+
+    def test_access_token_issues_short_lived_stream_ticket(self) -> None:
+        headers = {"Authorization": f"Bearer {self._token(UserRole.ADMIN)}"}
+
+        response = self.client.post("/orgs/acme/stream-ticket", headers=headers)
+
+        self.assertEqual(response.status_code, 200)
+        self.assertEqual(response.json()["expires_in"], 60)
+        self.assertEqual(response.headers["cache-control"], "no-store")
+        payload = jwt.decode(
+            response.json()["ticket"],
+            SECRET,
+            algorithms=["HS256"],
+            audience="face-attendance-stream",
+            issuer="face-attendance",
+        )
+        self.assertEqual(payload["type"], "stream")
+        self.assertEqual(payload["exp"] - payload["iat"], 60)
+
+    def test_stream_ticket_cannot_authorize_data_route(self) -> None:
+        ticket = self._ticket(UserRole.ADMIN)
+
+        response = self.client.get(
+            "/orgs/acme/employees",
+            headers={"Authorization": f"Bearer {ticket}"},
+        )
+
+        self.assertEqual(response.status_code, 401)
 
 
 if __name__ == "__main__":

@@ -20,7 +20,7 @@ import logging
 from contextlib import asynccontextmanager
 from typing import Annotated
 
-from fastapi import Depends, FastAPI, HTTPException, Query, Request
+from fastapi import Depends, FastAPI, HTTPException, Query, Request, Response
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import StreamingResponse
 from pydantic import BaseModel
@@ -31,8 +31,10 @@ from face_attendance.api.auth import (
     StreamUserDep,
     authenticate_user,
     create_access_token,
+    create_stream_ticket,
     require_jwt_secret,
     require_org_match,
+    STREAM_TICKET_TTL,
 )
 from face_attendance.api.dependencies import get_settings, get_storage
 from face_attendance.api.streaming import BOUNDARY, CameraStreamer, mjpeg_stream
@@ -99,6 +101,11 @@ class LoginRequest(BaseModel):
 class TokenResponse(BaseModel):
     access_token: str
     token_type: str = "bearer"
+
+
+class StreamTicketResponse(BaseModel):
+    ticket: str
+    expires_in: int
 
 
 @app.get("/health")
@@ -189,10 +196,9 @@ def stream_camera(
     """Live annotated MJPEG feed from this org's single camera.
 
     admin/manager only - ``employee`` gets 403 (consistent with employee being
-    self-service-only elsewhere). Auth accepts the bearer token via the
-    ``Authorization`` header or a ``?token=`` query param (see ``get_stream_user``
-    - a browser cannot set headers on an ``<img>`` src). Returns 503 rather than
-    hanging when no camera is available.
+    self-service-only elsewhere). Auth accepts a bearer header or a short-lived
+    stream-only ``?ticket=`` query credential. Returns 503 rather than hanging
+    when no camera is available.
     """
 
     require_org_match(user, org_id)
@@ -216,4 +222,35 @@ def stream_camera(
     return StreamingResponse(
         mjpeg_stream(streamer.jpeg_frame, streamer.stop_event),
         media_type=f"multipart/x-mixed-replace; boundary={BOUNDARY}",
+        headers={
+            "Cache-Control": "no-store",
+            "Referrer-Policy": "no-referrer",
+            "X-Content-Type-Options": "nosniff",
+        },
+    )
+
+
+@app.post("/orgs/{org_id}/stream-ticket", response_model=StreamTicketResponse)
+def issue_stream_ticket(
+    org_id: str,
+    response: Response,
+    user: CurrentUserDep,
+    settings: SettingsDep,
+) -> StreamTicketResponse:
+    """Issue a one-minute, stream-only ticket to this camera's operators."""
+
+    require_org_match(user, org_id)
+    if user.role == UserRole.EMPLOYEE:
+        raise HTTPException(
+            status_code=403, detail="employees may not view the live feed"
+        )
+    if org_id != settings.org_id:
+        raise HTTPException(
+            status_code=403,
+            detail="live camera is not assigned to this organization",
+        )
+    response.headers["Cache-Control"] = "no-store"
+    ticket = create_stream_ticket(user, require_jwt_secret(settings))
+    return StreamTicketResponse(
+        ticket=ticket, expires_in=int(STREAM_TICKET_TTL.total_seconds())
     )

@@ -18,7 +18,7 @@ import jwt
 from fastapi import Depends, Header, HTTPException, Query
 from pydantic import BaseModel
 
-from face_attendance.api.dependencies import get_settings
+from face_attendance.api.dependencies import get_settings, get_storage
 from face_attendance.config import AppSettings, SettingsError
 from face_attendance.contracts import UserRecord, UserRole
 from face_attendance.storage import AttendanceStorage
@@ -28,9 +28,13 @@ _PBKDF2_ITERATIONS = 200_000
 _SALT_BYTES = 16
 
 _JWT_ALGORITHM = "HS256"
+_JWT_ISSUER = "face-attendance"
+_ACCESS_AUDIENCE = "face-attendance-api"
+_STREAM_AUDIENCE = "face-attendance-stream"
 # Tokens are short-lived; a local dev/skeleton session doesn't need long-lived
 # credentials, and a shorter window limits the blast radius of a leaked token.
 ACCESS_TOKEN_TTL = timedelta(hours=8)
+STREAM_TICKET_TTL = timedelta(seconds=60)
 
 # A well-formed but intentionally-nonmatching hash. When a login email is
 # unknown we still run one PBKDF2 verify against this so response timing does
@@ -110,12 +114,18 @@ def create_access_token(user: UserRecord, secret: str) -> str:
         "org_id": user.org_id,
         "role": user.role.value,
         "employee_id": user.employee_id,
+        "iss": _JWT_ISSUER,
+        "aud": _ACCESS_AUDIENCE,
+        "type": "access",
+        "iat": now,
         "exp": now + ACCESS_TOKEN_TTL,
+        "jti": secrets.token_urlsafe(16),
     }
     return jwt.encode(claims, secret, algorithm=_JWT_ALGORITHM)
 
 
 SettingsDep = Annotated[AppSettings, Depends(get_settings)]
+StorageDep = Annotated[AttendanceStorage, Depends(get_storage)]
 
 
 def _unauthorized() -> HTTPException:
@@ -133,7 +143,7 @@ def decode_access_token(settings: AppSettings, token: str) -> AuthenticatedUser:
 
     secret = require_jwt_secret(settings)
     try:
-        payload = jwt.decode(token, secret, algorithms=[_JWT_ALGORITHM])
+        payload = _decode_token(token, secret, _ACCESS_AUDIENCE, "access")
     except jwt.PyJWTError as exc:
         raise _unauthorized() from exc
     try:
@@ -147,8 +157,75 @@ def decode_access_token(settings: AppSettings, token: str) -> AuthenticatedUser:
         raise _unauthorized() from exc
 
 
+def create_stream_ticket(user: AuthenticatedUser, secret: str) -> str:
+    """Issue a short-lived credential usable only by the MJPEG stream route."""
+
+    now = datetime.now(timezone.utc)
+    claims = {
+        "sub": user.user_id,
+        "org_id": user.org_id,
+        "role": user.role.value,
+        "employee_id": user.employee_id,
+        "iss": _JWT_ISSUER,
+        "aud": _STREAM_AUDIENCE,
+        "type": "stream",
+        "iat": now,
+        "exp": now + STREAM_TICKET_TTL,
+        "jti": secrets.token_urlsafe(16),
+    }
+    return jwt.encode(claims, secret, algorithm=_JWT_ALGORITHM)
+
+
+def decode_stream_ticket(settings: AppSettings, ticket: str) -> AuthenticatedUser:
+    """Verify a short-lived stream-only ticket and return its identity."""
+
+    secret = require_jwt_secret(settings)
+    try:
+        payload = _decode_token(ticket, secret, _STREAM_AUDIENCE, "stream")
+        return AuthenticatedUser(
+            user_id=str(payload["sub"]),
+            org_id=str(payload["org_id"]),
+            role=UserRole(payload["role"]),
+            employee_id=payload.get("employee_id"),
+        )
+    except (jwt.PyJWTError, KeyError, ValueError) as exc:
+        raise _unauthorized() from exc
+
+
+def _decode_token(
+    token: str, secret: str, audience: str, expected_type: str
+) -> dict:
+    payload = jwt.decode(
+        token,
+        secret,
+        algorithms=[_JWT_ALGORITHM],
+        audience=audience,
+        issuer=_JWT_ISSUER,
+        options={
+            "require": ["sub", "org_id", "role", "iss", "aud", "type", "iat", "exp", "jti"]
+        },
+    )
+    if payload.get("type") != expected_type:
+        raise jwt.InvalidTokenError("token has the wrong credential type")
+    return payload
+
+
+def _require_current_user(
+    storage: AttendanceStorage, identity: AuthenticatedUser
+) -> AuthenticatedUser:
+    current = storage.get_user_by_email(identity.user_id)
+    if current is None or (
+        current.org_id != identity.org_id
+        or current.role != identity.role
+        or current.employee_id != identity.employee_id
+    ):
+        raise _unauthorized()
+    return identity
+
+
 def get_current_user(
     settings: SettingsDep,
+    storage: StorageDep,
     authorization: Annotated[str | None, Header()] = None,
 ) -> AuthenticatedUser:
     """Decode and verify the ``Authorization: Bearer <token>`` header.
@@ -158,7 +235,8 @@ def get_current_user(
 
     if authorization is None or not authorization.startswith("Bearer "):
         raise _unauthorized()
-    return decode_access_token(settings, authorization[len("Bearer ") :])
+    identity = decode_access_token(settings, authorization[len("Bearer ") :])
+    return _require_current_user(storage, identity)
 
 
 CurrentUserDep = Annotated[AuthenticatedUser, Depends(get_current_user)]
@@ -166,23 +244,25 @@ CurrentUserDep = Annotated[AuthenticatedUser, Depends(get_current_user)]
 
 def get_stream_user(
     settings: SettingsDep,
+    storage: StorageDep,
     authorization: Annotated[str | None, Header()] = None,
-    token: Annotated[str | None, Query()] = None,
+    ticket: Annotated[str | None, Query()] = None,
 ) -> AuthenticatedUser:
-    """Like ``get_current_user`` but also accepts the token as ``?token=``.
+    """Accept a bearer header or short-lived ``?ticket=`` for MJPEG clients.
 
     A browser cannot set an ``Authorization`` header on the ``<img>``/``<video>``
-    ``src`` used to render an MJPEG stream, so this route also accepts the token
-    as a query parameter (the header is preferred when both are present). Query
-    -param tokens can leak via server access logs and referrer headers - an
-    accepted simplification for this internal thin slice, NOT for a hardened
-    production deployment.
+    ``src`` used to render an MJPEG stream. The query credential is therefore a
+    separate one-minute, stream-only ticket: it cannot authorize API routes and
+    sharply limits exposure if a URL is logged. The header is preferred when
+    both are present.
     """
 
     if authorization is not None and authorization.startswith("Bearer "):
-        return decode_access_token(settings, authorization[len("Bearer ") :])
-    if token is not None:
-        return decode_access_token(settings, token)
+        identity = decode_access_token(settings, authorization[len("Bearer ") :])
+        return _require_current_user(storage, identity)
+    if ticket is not None:
+        identity = decode_stream_ticket(settings, ticket)
+        return _require_current_user(storage, identity)
     raise _unauthorized()
 
 

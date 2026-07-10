@@ -143,3 +143,131 @@ Acme stream.
 Implementation commit: `b58a181 Bind camera stream to configured tenant`
 
 Push status: pushed to `origin/main`
+
+## Phase 3 - Stop the Live-Stream Bearer Token From Riding in a URL
+
+Date: 2026-07-11
+
+Status: implemented, verified, reviewed, committed, pushed, awaiting manual checkpoint
+
+Continued by Claude after the implementing session (Codex) stopped mid-phase to
+report a test-patch failure; see "Handoff" below for exactly what was picked up.
+
+### Finding resolved
+
+A browser `<img>`/`<video>` element cannot set an `Authorization` header, so the
+live-stream route previously accepted the full 8-hour access token as a
+`?token=` query parameter. Query strings commonly land in reverse-proxy/server
+access logs, browser history, and referrer headers - a real credential-leak
+path for a long-lived, full-privilege token. The audit also flagged that JWTs
+had no enforced minimum secret strength, no required `exp`/issuer/audience
+claims, and no way to invalidate a token before its 8-hour expiry if the
+underlying account changed.
+
+### Implementation
+
+- `FA_JWT_SECRET` now requires at least 32 characters (was: any non-empty
+  string); enforced by `AppSettings`, same fail-loud-and-name-the-variable
+  pattern as every other setting.
+- Access tokens (`create_access_token`) and a new, separate credential type -
+  stream tickets (`create_stream_ticket`) - both now carry `iss`, `aud`,
+  `type`, `iat`, and `jti`, and decoding requires every one of those claims
+  plus `exp` to be present (`_decode_token`); a token minted for one audience
+  can never be replayed against the other (proven by
+  `test_stream_ticket_cannot_authorize_data_route`).
+- Stream tickets are minted by a new `POST /orgs/{org_id}/stream-ticket`
+  endpoint (same org-match, role, and camera-ownership checks the stream route
+  already enforced), live for 60 seconds, and are the *only* credential the
+  `?ticket=` query parameter accepts - the old `?token=` parameter is gone,
+  and the response sets `Cache-Control: no-store` so the ticket itself is
+  never cached. The MJPEG response now also sends
+  `Cache-Control: no-store`, `Referrer-Policy: no-referrer`, and
+  `X-Content-Type-Options: nosniff`.
+- Every authenticated request (`get_current_user` and `get_stream_user`) now
+  re-checks the token's claims against the live `users` row
+  (`_require_current_user`): if the user was deleted, or their `org_id`,
+  `role`, or `employee_id` no longer matches what the token claims, the
+  request is rejected with `401` even though the token itself is still
+  validly signed and unexpired. This closes the "no revocation" gap without
+  adding a token blocklist - deleting or downgrading a user takes effect on
+  their very next request.
+- Frontend: the live-feed panel no longer puts the long-lived access token in
+  the image URL. It first `POST`s to `/orgs/{org_id}/stream-ticket` with the
+  access token in the `Authorization` header, then uses the short-lived
+  ticket it gets back as the `<img>` `src`'s `?ticket=` value.
+
+### Automated verification
+
+- Full Python regression suite: 211 tests passed (204 before this phase; +7:
+  2 in `tests/test_config.py` for the secret-length floor, 2 in
+  `tests/test_auth.py` for revocation-on-delete and
+  revocation-on-role-change, 3 already added by the stopped session in
+  `tests/test_api.py` for ticket issuance, ticket/token audience separation,
+  and the retired `?token=` parameter).
+- Frontend: `npm test` - 12 passed (was 10 going into this phase);
+  `npm run build` - clean, no TypeScript errors.
+- Real end-to-end check against a fresh dev database with a real camera
+  (`uvicorn` + `curl`, `FA_ORG_ID=acme`): login issues an access token; that
+  access token as `?token=` against the stream route is `401` (the old
+  bypass is gone); `POST /orgs/acme/stream-ticket` with the access token
+  returns a 60-second ticket; that ticket as `?ticket=` against the stream
+  route returns live MJPEG (`200`); the same ticket presented as a bearer
+  header against `/orgs/acme/employees` is `401` (audience-scoped, can't
+  reach data routes).
+
+### Self-review
+
+- Correctness: reviewed, clean. Ticket and access-token verification share
+  one `_decode_token` implementation parameterized by audience/type, so the
+  two paths cannot silently drift apart.
+- Security: reviewed, clean for this finding. The leak-prone long-lived token
+  no longer appears in any URL; the credential that does now has a 60-second
+  window and is rejected outright by every non-stream route.
+- Test-infrastructure bug found and fixed along the way: the revocation
+  tests' raw `sqlite3.connect()` calls used the connection as a `with`
+  context manager, which on `sqlite3.Connection` commits/rolls back a
+  transaction but does **not** close the connection - the leaked handle held
+  a Windows file lock that broke `TemporaryDirectory` cleanup. Fixed by
+  closing the connection explicitly in a `finally` block.
+- Dependencies: no dependency changes.
+
+### Handoff (what Claude picked up vs. what Codex had already built)
+
+The implementing session had already finished the substantive Phase 3 work
+uncommitted in the working tree - `api/auth.py` (ticket issuance/verification,
+required-claims decoding, `_require_current_user`), `api/main.py`
+(`/stream-ticket` endpoint, response headers), `config/settings.py`
+(min-length secret), the frontend ticket flow, and most of
+`tests/test_api.py`'s new ticket coverage. It stopped because a test-only
+patch against `tests/test_config.py` failed to apply (its expected insertion
+anchor didn't match the file's current structure) and, per this project's
+stop-on-ambiguous-failure rule, it reported the blocker instead of retrying.
+
+Picking up from there, Claude: added the missing `tests/test_config.py`
+coverage for the secret-length floor by hand; fixed a missing `import jwt` in
+`tests/test_api.py` that was the actual reason the suite showed 1 failing
+test (206/207) before this pass; added the "authentication revocation" tests
+Codex's stopped message said it would write next (delete-then-request and
+role-downgrade-then-request, both proving `_require_current_user` rejects a
+stale-but-unexpired token); found and fixed the Windows connection-leak bug
+those new tests exposed; and re-verified the whole phase end-to-end against a
+freshly restarted API process (a running `uvicorn` picks up file changes only
+on restart, so the pre-fix process was not sufficient evidence on its own).
+
+### Files changed
+
+- `src/face_attendance/config/settings.py`
+- `src/face_attendance/api/auth.py`
+- `src/face_attendance/api/main.py`
+- `frontend/src/App.tsx`
+- `tests/test_api.py`
+- `tests/test_config.py`
+- `tests/test_auth.py`
+- `frontend/src/App.test.tsx`
+- `CODEX_AUDIT.md`
+
+### Delivery
+
+Implementation commit: pending (see below)
+
+Push status: pending

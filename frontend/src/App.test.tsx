@@ -65,7 +65,10 @@ const events = [
 function mockFetch(byPath: (url: string) => unknown) {
   const fetchMock = vi.fn(async (url: string) => ({
     ok: true,
-    json: async () => byPath(url),
+    json: async () =>
+      url.includes("/stream-ticket")
+        ? { ticket: "short-lived-stream-ticket", expires_in: 60 }
+        : byPath(url),
   }));
   vi.stubGlobal("fetch", fetchMock);
   return fetchMock;
@@ -94,9 +97,9 @@ describe("Admin/manager dashboard", () => {
 
     await screen.findAllByText("Ada Lovelace");
     for (const call of fetchMock.mock.calls) {
-      expect(call[1]?.headers).toMatchObject({
-        Authorization: `Bearer ${adminToken}`,
-      });
+      expect(new Headers(call[1]?.headers).get("Authorization")).toBe(
+        `Bearer ${adminToken}`,
+      );
     }
   });
 
@@ -126,9 +129,26 @@ describe("Live camera feed", () => {
       "Live camera feed",
     )) as HTMLImageElement;
     expect(feed).toBeInTheDocument();
-    // Token rides as a query param (an <img> src cannot set an auth header).
-    expect(feed.src).toContain("/orgs/acme/stream?token=");
-    expect(feed.src).toContain(adminToken);
+    expect(feed.src).toContain("/orgs/acme/stream?ticket=");
+    expect(feed.src).toContain("short-lived-stream-ticket");
+    expect(feed.src).not.toContain(adminToken);
+  });
+
+  it("requests the stream ticket with the access-token header", async () => {
+    localStorage.setItem(TOKEN_KEY, adminToken);
+    const fetchMock = mockFetch((url) =>
+      url.includes("/employees") ? employees : events,
+    );
+    render(<App />);
+
+    await screen.findByAltText("Live camera feed");
+    const ticketCall = fetchMock.mock.calls.find((call) =>
+      String(call[0]).includes("/stream-ticket"),
+    );
+    expect(ticketCall?.[1]?.method).toBe("POST");
+    expect(new Headers(ticketCall?.[1]?.headers).get("Authorization")).toBe(
+      `Bearer ${adminToken}`,
+    );
   });
 
   it("does not show the live feed for an employee", async () => {
@@ -207,9 +227,9 @@ describe("Login and logout", () => {
     const dataCall = fetchMock.mock.calls.find((c) =>
       String(c[0]).includes("/employees"),
     );
-    expect(dataCall?.[1]?.headers).toMatchObject({
-      Authorization: `Bearer ${adminToken}`,
-    });
+    expect(new Headers(dataCall?.[1]?.headers).get("Authorization")).toBe(
+      `Bearer ${adminToken}`,
+    );
   });
 
   it("logout clears the token and returns to the login form", async () => {

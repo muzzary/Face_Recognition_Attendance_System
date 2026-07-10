@@ -1,6 +1,7 @@
 """Auth + RBAC over the HTTP API: login, token verification, cross-org
 isolation, and the per-role read scopes (admin/manager full, employee self-only)."""
 
+import sqlite3
 import unittest
 from datetime import datetime, timedelta, timezone
 from pathlib import Path
@@ -33,6 +34,7 @@ class AuthTests(unittest.TestCase):
         self.addCleanup(self._temp.cleanup)
         db_path = Path(self._temp.name) / "attendance.db"
         initialize_database(db_path)
+        self.db_path = db_path
         self.storage = AttendanceStorage(db_path)
 
         for org in ("acme",):
@@ -208,6 +210,50 @@ class AuthTests(unittest.TestCase):
             headers=headers,
         )
         self.assertEqual(other.status_code, 403)
+
+    # --- revocation ------------------------------------------------------------
+    # A JWT's claims are a snapshot at login time; get_current_user re-checks the
+    # live user row on every request (_require_current_user in api/auth.py) so a
+    # still-unexpired token stops working the moment the underlying account
+    # changes, instead of granting stale access for the rest of its 8h lifetime.
+
+    def _mutate_user_row(self, user_id: str, **columns: object) -> None:
+        assignments = ", ".join(f"{column} = ?" for column in columns)
+        connection = sqlite3.connect(self.db_path)
+        try:
+            connection.execute(
+                f"UPDATE users SET {assignments} WHERE user_id = ?",
+                (*columns.values(), user_id),
+            )
+            connection.commit()
+        finally:
+            connection.close()
+
+    def test_deleted_user_token_is_rejected(self) -> None:
+        headers = self._auth("employee@acme.test")
+        connection = sqlite3.connect(self.db_path)
+        try:
+            connection.execute(
+                "DELETE FROM users WHERE user_id = ?", ("employee@acme.test",)
+            )
+            connection.commit()
+        finally:
+            connection.close()
+
+        response = self.client.get("/orgs/acme/employees/EMP-001", headers=headers)
+
+        self.assertEqual(response.status_code, 401)
+
+    def test_role_downgrade_invalidates_the_old_token(self) -> None:
+        headers = self._auth("admin@acme.test")
+        self._mutate_user_row("admin@acme.test", role="employee", employee_id="EMP-001")
+
+        # The token still claims role=admin, but the live row now says
+        # employee - the identity check must catch the mismatch and reject it
+        # rather than honor the stale, now-too-privileged claim.
+        response = self.client.get("/orgs/acme/employees", headers=headers)
+
+        self.assertEqual(response.status_code, 401)
 
 
 if __name__ == "__main__":

@@ -49,9 +49,16 @@ function decodeToken(token: string): TokenClaims | null {
   }
 }
 
-async function fetchJson<T>(path: string, token: string): Promise<T> {
+async function fetchJson<T>(
+  path: string,
+  token: string,
+  init: RequestInit = {},
+): Promise<T> {
+  const headers = new Headers(init.headers);
+  headers.set("Authorization", `Bearer ${token}`);
   const response = await fetch(`${API_BASE}${path}`, {
-    headers: { Authorization: `Bearer ${token}` },
+    ...init,
+    headers,
   });
   if (!response.ok) {
     throw new Error(`API responded ${response.status}`);
@@ -179,16 +186,36 @@ function AttendanceTable({
   );
 }
 
-// Live MJPEG feed (Phase 7). MJPEG renders natively in a plain <img>, no video
-// library needed. The token rides as a query param because a browser cannot set
-// an Authorization header on an <img> src (a documented API simplification). A
-// 503 (camera unavailable) fires the img onError, which we surface as a clear
-// message instead of a broken-image icon.
+// MJPEG renders natively in a plain <img>, which cannot set an Authorization
+// header. Fetch a one-minute, stream-only ticket with the access-token header;
+// only that restricted credential enters the image URL.
 function LiveFeed({ token }: { token: string }) {
+  const [ticket, setTicket] = useState<string | null>(null);
   const [failed, setFailed] = useState(false);
-  const src = `${API_BASE}/orgs/${ORG_ID}/stream?token=${encodeURIComponent(
-    token,
-  )}`;
+
+  useEffect(() => {
+    let cancelled = false;
+    async function loadTicket() {
+      try {
+        const result = await fetchJson<{ ticket: string }>(
+          `/orgs/${ORG_ID}/stream-ticket`,
+          token,
+          { method: "POST" },
+        );
+        if (!cancelled) setTicket(result.ticket);
+      } catch {
+        if (!cancelled) setFailed(true);
+      }
+    }
+    loadTicket();
+    return () => {
+      cancelled = true;
+    };
+  }, [token]);
+
+  const src = ticket
+    ? `${API_BASE}/orgs/${ORG_ID}/stream?ticket=${encodeURIComponent(ticket)}`
+    : null;
   return (
     <section className="card">
       <h2>Live camera</h2>
@@ -196,13 +223,15 @@ function LiveFeed({ token }: { token: string }) {
         <p className="state error" role="alert">
           Live camera feed is unavailable.
         </p>
-      ) : (
+      ) : src ? (
         <img
           className="live-feed"
           src={src}
           alt="Live camera feed"
           onError={() => setFailed(true)}
         />
+      ) : (
+        <p className="state">Connecting to live camera...</p>
       )}
     </section>
   );

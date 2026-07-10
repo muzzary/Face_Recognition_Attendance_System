@@ -55,6 +55,16 @@ class AppSettingsTests(unittest.TestCase):
             )
         self.assertIn("liveness_min_motion", str(ctx.exception))
 
+    def test_short_jwt_secret_rejected(self) -> None:
+        with self.assertRaises(SettingsError) as ctx:
+            AppSettings.from_env(environ={"FA_JWT_SECRET": "too-short"})
+        self.assertIn("FA_JWT_SECRET", str(ctx.exception))
+
+    def test_jwt_secret_at_minimum_length_accepted(self) -> None:
+        settings = AppSettings.from_env(environ={"FA_JWT_SECRET": "x" * 32})
+
+        self.assertEqual(settings.jwt_secret, "x" * 32)
+
     def test_model_paths_derive_from_models_dir(self) -> None:
         settings = AppSettings.from_env(environ={"FA_MODELS_DIR": "custom_models"})
 

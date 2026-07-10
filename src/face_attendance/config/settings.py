@@ -78,7 +78,7 @@ class AppSettings(BaseModel):
     # layer fails loudly the moment it needs to issue or verify a token (see
     # api.auth.require_jwt_secret). Left optional here so camera-only CLI usage,
     # which never touches auth, doesn't have to carry an API secret.
-    jwt_secret: str | None = Field(default=None, min_length=1)
+    jwt_secret: str | None = Field(default=None, min_length=32)
 
     # Logging
     log_level: str = "INFO"
