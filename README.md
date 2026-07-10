@@ -51,6 +51,21 @@ face-attendance employees activate --employee-id EMP-001
 
 `python -m face_attendance.cli ...` works identically to the `face-attendance` script.
 
+### API
+
+A read-only HTTP API (FastAPI) reports the stored roster and attendance over the same tenant-scoped storage layer. It has no auth yet (a later phase) and no write endpoints. Run it against the configured `FA_DATABASE_PATH`:
+
+```powershell
+uvicorn face_attendance.api.main:app --reload
+```
+
+Routes (every data route is scoped by an `org_id` path segment, so a tenant only ever sees its own rows):
+
+- `GET /health` — liveness check, no database access.
+- `GET /orgs/{org_id}/employees` — roster for the org (empty list if the org has none or does not exist).
+- `GET /orgs/{org_id}/employees/{employee_id}` — one employee, or 404.
+- `GET /orgs/{org_id}/attendance?employee_id=&limit=` — attendance events, optionally filtered by employee and capped to the newest `limit`.
+
 ### Configuration
 
 All tunables are environment variables validated at startup (defaults in parentheses):

@@ -1,5 +1,32 @@
 # Phase Log
 
+## Web Arc Phase 3 - Read-Only HTTP API
+
+Date: 2026-07-10
+
+### Goal
+
+Third phase of the 7-phase web/multi-tenant arc. Put a minimal read-only HTTP API in front of the existing tenant-scoped storage layer so a later frontend has something to call. Scoped deliberately small: reporting reads only - no auth (Phase 5), no write endpoints, no frontend.
+
+### What changed
+
+- **New dependency:** `fastapi` and `uvicorn` added as core dependencies in `pyproject.toml` (the project's first API-layer deps; previously pydantic/numpy/opencv-python only). `httpx` added under the `dev` optional group because FastAPI's `TestClient` needs it.
+- **New package `src/face_attendance/api/`:**
+  - `main.py` - the FastAPI `app` with four routes: `GET /health` (no DB), `GET /orgs/{org_id}/employees`, `GET /orgs/{org_id}/employees/{employee_id}` (404 if absent), and `GET /orgs/{org_id}/attendance` with optional `employee_id` and `limit` (`ge=1`) query params. Each data route is scoped by the `org_id` path segment and delegates straight to `AttendanceStorage`, so the Phase 2 tenant-isolation guarantee carries through to HTTP. The existing `EmployeeRecord`/`AttendanceEvent` contracts are reused directly as `response_model`s rather than re-declaring field lists.
+  - `dependencies.py` - `get_settings` (cached `AppSettings.from_env()`) and `get_storage`, injected via `Depends` so tests override the storage with a temp DB through `app.dependency_overrides`.
+- **Design choice (documented in the route module and README):** an unknown org is indistinguishable from an empty org at the storage layer (reads filter by org id and return nothing), so the collection routes return an empty list for an unknown org rather than 404; a missing single employee returns 404.
+- **Docs:** README gains a short "API" section (uvicorn invocation + route list); `DIRECTORY_MAP.md` lists the new package and test.
+
+### Verified
+
+- `python -m unittest discover -s tests`: **173 tests, all green** (was 164; +9 new in `tests/test_api.py`).
+- New tests use FastAPI's `TestClient` against a temp SQLite DB seeded via `AttendanceStorage` (no camera/hardware): roster list, single-employee 404, attendance `limit` (newest N, chronological), employee filter, `limit=0` rejected (422), and cross-route tenant isolation on a two-org (`acme`/`globex`) database - a globex row never surfaces through an acme URL and vice versa.
+- Watched it work as a real server (not just tests): ran `uvicorn face_attendance.api.main:app` against a seeded temp DB and curled every route - `/health` -> `{"status":"ok"}`, the acme roster and single employee returned as JSON, an unknown employee returned 404 with a detail message, `attendance?limit=1` returned the newest event, and an unknown org returned `[]`.
+
+### Review
+
+- Reviewed, clean. Path/query params flow through the existing parameterized-SQL storage methods (no injection surface); `limit` is guarded `ge=1`; no auth is intentional and deferred to Phase 5.
+
 ## Web Arc Phase 2 - Organization (Tenant) Scoping of the Data Layer
 
 Date: 2026-07-10

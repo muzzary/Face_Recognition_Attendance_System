@@ -1,6 +1,6 @@
 # Directory Map
 
-Last updated: 2026-07-10
+Last updated: 2026-07-10 (Web Arc Phase 3: read-only API)
 
 ## Root
 
@@ -10,7 +10,7 @@ Last updated: 2026-07-10
 - `MISSION.md` - teaching mission for learning the project while building it.
 - `RESOURCES.md` - curated source list for learning and implementation decisions.
 - `NOTES.md` - teaching and collaboration notes.
-- `pyproject.toml` - packaging metadata, core dependencies (pydantic, numpy, opencv-python), and the `face-attendance` console script.
+- `pyproject.toml` - packaging metadata, core dependencies (pydantic, numpy, opencv-python, fastapi, uvicorn), the `httpx` dev dependency (FastAPI TestClient), and the `face-attendance` console script.
 - `README.md` - setup, usage, threshold rationale, liveness limitations, concurrency design, scalability, and security notes.
 - `.github/workflows/ci.yml` - CI running the full test suite on push and pull request.
 
@@ -30,6 +30,7 @@ Last updated: 2026-07-10
 - `storage/` - SQLite schema (WAL, indexes, org-scoped tables) and `AttendanceStorage` repository; `migrate_to_org_scoping` upgrades a pre-tenant v2 database to the org-scoped v3 schema in place.
 - `config/` - `AppSettings`: validated runtime configuration with `FA_*` env overrides.
 - `app/` - application flows: `factory.py` (component wiring), `enroll.py`, `attend.py`, `report.py`, `calibrate.py` (per-camera liveness threshold recommendation).
+- `api/` - read-only FastAPI app over the storage layer: `main.py` (org-scoped employee/attendance/health routes reusing the `EmployeeRecord`/`AttendanceEvent` contracts as response models), `dependencies.py` (`get_storage`/`get_settings` DI so tests can point at a temp database). No auth or write endpoints yet.
 
 ## Scripts
 
@@ -55,6 +56,7 @@ Last updated: 2026-07-10
 - `tests/test_app.py` - end-to-end enrollment/attendance with fakes, CLI dispatch.
 - `tests/test_calibrate.py` - liveness calibration sampling, recommendation formulas, report output.
 - `tests/test_stream_preview.py` - MJPEG streamer: latest-wins/non-blocking JPEG holder, multipart framing, and the slow-consumer-never-stalls-producer guarantee over the real capture loop.
+- `tests/test_api.py` - read-only API via FastAPI TestClient against a temp SQLite DB: employee roster/single-lookup (incl. 404), attendance list with `limit`/employee filter, and cross-route tenant isolation on a two-org database.
 
 ## Docs
 
