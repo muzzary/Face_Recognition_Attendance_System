@@ -1,9 +1,10 @@
 # Directory Map
 
-Last updated: 2026-07-11 (Codex audit remediation: tenant integrity, camera-to-org binding, stream ticket auth, frontend multi-tenancy, live-overlay frame pairing, pagination/rate-limiting/CI, camera idle lifecycle, dependency lock)
+Last updated: 2026-07-13 (Codex audit remediation: tenant integrity, camera-to-org binding, stream ticket auth, frontend multi-tenancy, live-overlay frame pairing, pagination/rate-limiting/CI, camera idle lifecycle, dependency lock)
 
 ## Root
 
+- `.editorconfig` - shared editor settings (UTF-8, LF, final newline, 4-space Python / 2-space web indentation) so formatting stays consistent across contributors.
 - `.gitignore` - ignores Python caches, virtual environments, secrets, runtime logs, recordings, downloaded models, and local biometric data.
 - `AGENTS.md` - project-specific working instructions and engineering standards.
 - `CODEX_AUDIT.md` - phase-by-phase implementation record for the Codex security/correctness audit remediation (tenant integrity, camera-to-org binding, stream ticket auth, frontend multi-tenancy, live-overlay frame pairing, pagination/rate-limiting/CI, camera idle lifecycle, dependency lock).
