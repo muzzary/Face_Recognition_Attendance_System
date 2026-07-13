@@ -1,5 +1,10 @@
 # Face Recognition Attendance System
 
+![Python](https://img.shields.io/badge/Python-3.11-3776AB?logo=python&logoColor=white)
+![OpenCV](https://img.shields.io/badge/OpenCV-YuNet%20%2B%20SFace-5C3EE8?logo=opencv&logoColor=white)
+![SQLite](https://img.shields.io/badge/Storage-SQLite%20WAL-003B57?logo=sqlite&logoColor=white)
+![CI](https://img.shields.io/badge/CI-GitHub%20Actions-2088FF?logo=githubactions&logoColor=white)
+
 Production-oriented biometric attendance system in Python: live video capture, face detection, embedding-based employee matching, multi-frame anti-spoofing liveness, and secure clock-in/clock-out logging — with **no raw face images ever stored**. Designed to stay fast and accurate at up to ~1000 enrolled employees per terminal.
 
 ## How It Works
